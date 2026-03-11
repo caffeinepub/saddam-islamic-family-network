@@ -1,0 +1,144 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Islamic Green + Gold Palette */
+    --radius: 0.75rem;
+
+    /* Light mode: cream/ivory base with deep green and gold accents */
+    --background: 0.97 0.01 95;
+    --foreground: 0.15 0.04 160;
+    --card: 0.99 0.005 90;
+    --card-foreground: 0.15 0.04 160;
+    --popover: 0.99 0.005 90;
+    --popover-foreground: 0.15 0.04 160;
+
+    /* Primary: deep emerald green */
+    --primary: 0.38 0.12 160;
+    --primary-foreground: 0.98 0 0;
+
+    /* Secondary: warm gold/amber */
+    --secondary: 0.85 0.08 85;
+    --secondary-foreground: 0.2 0.05 160;
+
+    /* Muted: light sage */
+    --muted: 0.93 0.02 155;
+    --muted-foreground: 0.45 0.04 160;
+
+    /* Accent: golden amber */
+    --accent: 0.78 0.14 75;
+    --accent-foreground: 0.12 0.03 160;
+
+    /* Destructive */
+    --destructive: 0.577 0.245 27.325;
+    --destructive-foreground: 0.985 0 0;
+
+    --border: 0.88 0.03 155;
+    --input: 0.88 0.03 155;
+    --ring: 0.38 0.12 160;
+
+    --chart-1: 0.38 0.12 160;
+    --chart-2: 0.78 0.14 75;
+    --chart-3: 0.55 0.15 170;
+    --chart-4: 0.65 0.18 85;
+    --chart-5: 0.45 0.1 200;
+
+    --sidebar: 0.22 0.08 160;
+    --sidebar-foreground: 0.96 0 0;
+    --sidebar-primary: 0.78 0.14 75;
+    --sidebar-primary-foreground: 0.12 0.03 160;
+    --sidebar-accent: 0.3 0.1 160;
+    --sidebar-accent-foreground: 0.96 0 0;
+    --sidebar-border: 0.3 0.08 160;
+    --sidebar-ring: 0.78 0.14 75;
+
+    /* Custom Islamic palette tokens */
+    --islamic-green: 0.38 0.12 160;
+    --islamic-green-dark: 0.25 0.1 160;
+    --islamic-green-light: 0.55 0.1 160;
+    --islamic-gold: 0.78 0.14 75;
+    --islamic-gold-light: 0.88 0.12 80;
+    --islamic-cream: 0.97 0.01 95;
+    --islamic-surface: 0.99 0.005 90;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Outfit", "Georgia", sans-serif;
+  }
+
+  .font-arabic {
+    font-family: "Scheherazade New", "Amiri", "Arial Unicode MS", serif;
+    direction: rtl;
+  }
+}
+
+@layer utilities {
+  .islamic-gradient {
+    background: linear-gradient(
+      135deg,
+      oklch(var(--islamic-green-dark)) 0%,
+      oklch(var(--islamic-green)) 50%,
+      oklch(0.3 0.12 175) 100%
+    );
+  }
+
+  .gold-gradient {
+    background: linear-gradient(
+      135deg,
+      oklch(var(--islamic-gold)) 0%,
+      oklch(var(--islamic-gold-light)) 100%
+    );
+  }
+
+  .card-glow {
+    box-shadow:
+      0 1px 3px oklch(var(--islamic-green) / 0.08),
+      0 4px 16px oklch(var(--islamic-green) / 0.06),
+      0 0 0 1px oklch(var(--border));
+  }
+
+  .card-glow-hover:hover {
+    box-shadow:
+      0 4px 12px oklch(var(--islamic-green) / 0.15),
+      0 8px 32px oklch(var(--islamic-green) / 0.1),
+      0 0 0 1px oklch(var(--islamic-green) / 0.2);
+    transform: translateY(-1px);
+    transition:
+      box-shadow 0.25s ease,
+      transform 0.25s ease;
+  }
+
+  .pattern-overlay {
+    background-image: url("/assets/generated/islamic-pattern-bg.dim_800x600.jpg");
+    background-size: cover;
+    background-position: center;
+  }
+
+  .text-gold {
+    color: oklch(var(--islamic-gold));
+  }
+
+  .bg-islamic-green {
+    background-color: oklch(var(--islamic-green));
+  }
+
+  .bg-islamic-dark {
+    background-color: oklch(var(--islamic-green-dark));
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
