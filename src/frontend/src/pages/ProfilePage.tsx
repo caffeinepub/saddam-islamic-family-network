@@ -115,8 +115,27 @@ export default function ProfilePage() {
     }
 
     try {
-      let newProfilePhotoId = profile?.profilePhotoId;
-      let newCoverPhotoId = profile?.coverPhotoId;
+      // Recreate ExternalBlob references from URL to avoid serialization issues
+      let newProfilePhotoId: ExternalBlob | undefined = undefined;
+      let newCoverPhotoId: ExternalBlob | undefined = undefined;
+
+      if (!profilePhotoFile && profile?.profilePhotoId) {
+        try {
+          const url = profile.profilePhotoId.getDirectURL();
+          newProfilePhotoId = ExternalBlob.fromURL(url);
+        } catch {
+          newProfilePhotoId = undefined;
+        }
+      }
+
+      if (!coverPhotoFile && profile?.coverPhotoId) {
+        try {
+          const url = profile.coverPhotoId.getDirectURL();
+          newCoverPhotoId = ExternalBlob.fromURL(url);
+        } catch {
+          newCoverPhotoId = undefined;
+        }
+      }
 
       if (profilePhotoFile) {
         const bytes = new Uint8Array(await profilePhotoFile.arrayBuffer());
@@ -147,7 +166,8 @@ export default function ProfilePage() {
       setProfileUploadPct(0);
       setCoverUploadPct(0);
       toast.success("Profile updated! ✨");
-    } catch {
+    } catch (err) {
+      console.error("Profile save error:", err);
       toast.error("Failed to save profile");
       setProfileUploadPct(0);
       setCoverUploadPct(0);

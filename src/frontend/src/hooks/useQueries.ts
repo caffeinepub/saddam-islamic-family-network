@@ -1,5 +1,6 @@
 import type { Principal } from "@icp-sdk/core/principal";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRef } from "react";
 import type { ExternalBlob } from "../backend";
 import type { NotificationView, PostView, UserProfile } from "../backend";
 import { useActor } from "./useActor";
@@ -48,15 +49,19 @@ export function useGetUserProfile(user: Principal | undefined) {
 
 export function useSaveUserProfile() {
   const { actor } = useActor();
+  const actorRef = useRef(actor);
+  actorRef.current = actor;
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (profile: UserProfile) => {
-      if (!actor) throw new Error("Actor not available");
-      await actor.saveCallerUserProfile(profile);
+      const currentActor = actorRef.current;
+      if (!currentActor) throw new Error("Actor not available");
+      await currentActor.saveCallerUserProfile(profile);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["currentUserProfile"] });
+      queryClient.invalidateQueries({ queryKey: ["feedAuthors"] });
     },
   });
 }

@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Principal } from "@icp-sdk/core/principal";
 import { ArrowLeft, MessageCircle, Send, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import type { UserProfile } from "../backend";
 import { useActor } from "../hooks/useActor";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
@@ -61,7 +62,7 @@ function getInitials(name: string): string {
 
 // ── Group Chat ─────────────────────────────────────────────────────────────
 function GroupChat() {
-  const { actor } = useActor();
+  const { actor, isFetching } = useActor();
   const { identity } = useInternetIdentity();
   const myPrincipal = identity?.getPrincipal().toString();
 
@@ -120,11 +121,30 @@ function GroupChat() {
 
   const handleSend = async () => {
     if (!actor || !input.trim()) return;
+    const content = input.trim();
     setSending(true);
+    setInput("");
+
+    // Optimistic update: add message to local state immediately
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMsg: ChatMessageView = {
+      id: tempId,
+      sender: identity!.getPrincipal(),
+      content,
+      createdTimestamp: BigInt(Date.now()) * BigInt(1_000_000),
+    };
+    setMessages((prev) => [...prev, optimisticMsg]);
+
     try {
-      await asChatActor(actor).sendGroupMessage(input.trim());
-      setInput("");
-      await fetchMessages();
+      await asChatActor(actor).sendGroupMessage(content);
+      // Refresh after short delay to get real message from backend
+      setTimeout(() => fetchMessages(), 500);
+    } catch (err) {
+      console.error("Failed to send message:", err);
+      toast.error("Failed to send message. Please try again.");
+      // Remove optimistic message and restore input on failure
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setInput(content);
     } finally {
       setSending(false);
     }
@@ -192,6 +212,14 @@ function GroupChat() {
       </ScrollArea>
 
       <div className="border-t border-border bg-card px-3 py-3 flex gap-2">
+        {isFetching && !actor && (
+          <p
+            className="text-xs text-muted-foreground self-center"
+            data-ocid="chat.group.loading_state"
+          >
+            Connecting...
+          </p>
+        )}
         <Input
           data-ocid="chat.group.input"
           value={input}
@@ -199,12 +227,12 @@ function GroupChat() {
           onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
           placeholder="Type a message\u2026"
           className="flex-1"
-          disabled={sending}
+          disabled={sending || !actor}
         />
         <Button
           data-ocid="chat.group.primary_button"
           onClick={handleSend}
-          disabled={sending || !input.trim()}
+          disabled={sending || !input.trim() || !actor}
           size="icon"
           className="bg-islamic-green hover:bg-islamic-green/90 text-white"
         >
@@ -217,7 +245,7 @@ function GroupChat() {
 
 // ── Private Chat ────────────────────────────────────────────────────────────
 function PrivateChat() {
-  const { actor } = useActor();
+  const { actor, isFetching } = useActor();
   const { identity } = useInternetIdentity();
   const myPrincipal = identity?.getPrincipal().toString();
 
@@ -237,19 +265,23 @@ function PrivateChat() {
     if (!actor) return;
     const chatActor = asChatActor(actor);
     setLoadingMembers(true);
-    chatActor.getAllUsers().then(async (principals) => {
-      const others = principals.filter((p) => p.toString() !== myPrincipal);
-      setMembers(others);
-      const profiles = await Promise.all(
-        others.map((p) =>
-          chatActor.getUserProfile(p).then((pr) => ({ key: p.toString(), pr })),
-        ),
-      );
-      const map: Record<string, UserProfile | null> = {};
-      for (const { key, pr } of profiles) map[key] = pr ?? null;
-      setMemberProfiles(map);
-      setLoadingMembers(false);
-    });
+    chatActor
+      .getAllUsers()
+      .then(async (principals) => {
+        const others = principals.filter((p) => p.toString() !== myPrincipal);
+        setMembers(others);
+        const profiles = await Promise.all(
+          others.map((p) =>
+            chatActor
+              .getUserProfile(p)
+              .then((pr) => ({ key: p.toString(), pr })),
+          ),
+        );
+        const map: Record<string, UserProfile | null> = {};
+        for (const { key, pr } of profiles) map[key] = pr ?? null;
+        setMemberProfiles(map);
+      })
+      .finally(() => setLoadingMembers(false));
   }, [actor, myPrincipal]);
 
   const fetchConversation = useCallback(
@@ -291,11 +323,28 @@ function PrivateChat() {
 
   const handleSend = async () => {
     if (!actor || !selectedMember || !input.trim()) return;
+    const content = input.trim();
     setSending(true);
+    setInput("");
+
+    // Optimistic update
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMsg: ChatMessageView = {
+      id: tempId,
+      sender: identity!.getPrincipal(),
+      content,
+      createdTimestamp: BigInt(Date.now()) * BigInt(1_000_000),
+    };
+    setMessages((prev) => [...prev, optimisticMsg]);
+
     try {
-      await asChatActor(actor).sendPrivateMessage(selectedMember, input.trim());
-      setInput("");
-      await fetchConversation(selectedMember);
+      await asChatActor(actor).sendPrivateMessage(selectedMember, content);
+      setTimeout(() => fetchConversation(selectedMember), 500);
+    } catch (err) {
+      console.error("Failed to send message:", err);
+      toast.error("Failed to send message. Please try again.");
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setInput(content);
     } finally {
       setSending(false);
     }
@@ -375,6 +424,14 @@ function PrivateChat() {
         </ScrollArea>
 
         <div className="border-t border-border bg-card px-3 py-3 flex gap-2">
+          {isFetching && !actor && (
+            <p
+              className="text-xs text-muted-foreground self-center"
+              data-ocid="chat.private.loading_state"
+            >
+              Connecting...
+            </p>
+          )}
           <Input
             data-ocid="chat.private.input"
             value={input}
@@ -382,12 +439,12 @@ function PrivateChat() {
             onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
             placeholder={`Message ${partnerName}\u2026`}
             className="flex-1"
-            disabled={sending}
+            disabled={sending || !actor}
           />
           <Button
             data-ocid="chat.private.primary_button"
             onClick={handleSend}
-            disabled={sending || !input.trim()}
+            disabled={sending || !input.trim() || !actor || !selectedMember}
             size="icon"
             className="bg-islamic-green hover:bg-islamic-green/90 text-white"
           >
