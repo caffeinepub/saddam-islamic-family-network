@@ -4,7 +4,14 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Principal } from "@icp-sdk/core/principal";
-import { ArrowLeft, MessageCircle, Send, Users } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  CheckCheck,
+  MessageCircle,
+  Send,
+  Users,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { UserProfile } from "../backend";
@@ -58,6 +65,20 @@ function getInitials(name: string): string {
     .join("")
     .toUpperCase()
     .slice(0, 2);
+}
+
+// WhatsApp-style message tick: single gray = sending/optimistic, double green = confirmed
+function MessageTick({ messageId }: { messageId: string }) {
+  const isPending = messageId.startsWith("temp-");
+  if (isPending) {
+    return <Check className="w-3 h-3 text-white/60 flex-shrink-0" />;
+  }
+  return (
+    <CheckCheck
+      className="w-3 h-3 flex-shrink-0"
+      style={{ color: "#4fc87a" }}
+    />
+  );
 }
 
 // ── Group Chat ─────────────────────────────────────────────────────────────
@@ -200,9 +221,12 @@ function GroupChat() {
                   >
                     {msg.content}
                   </div>
-                  <span className="text-[10px] text-muted-foreground mt-1">
-                    {formatTime(msg.createdTimestamp)}
-                  </span>
+                  <div className="flex flex-row items-center gap-1 mt-1">
+                    <span className="text-[10px] text-muted-foreground">
+                      {formatTime(msg.createdTimestamp)}
+                    </span>
+                    {isMe && <MessageTick messageId={msg.id} />}
+                  </div>
                 </div>
               </div>
             );
@@ -412,9 +436,12 @@ function PrivateChat() {
                     >
                       {msg.content}
                     </div>
-                    <span className="text-[10px] text-muted-foreground mt-1">
-                      {formatTime(msg.createdTimestamp)}
-                    </span>
+                    <div className="flex flex-row items-center gap-1 mt-1">
+                      <span className="text-[10px] text-muted-foreground">
+                        {formatTime(msg.createdTimestamp)}
+                      </span>
+                      {isMe && <MessageTick messageId={msg.id} />}
+                    </div>
                   </div>
                 </div>
               );

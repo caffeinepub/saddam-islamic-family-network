@@ -159,42 +159,48 @@ actor {
 
   public query ({ caller }) func getCallerUserProfile() : async ?UserProfile {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only users can view profiles");
     };
     profiles.get(caller);
   };
 
   public shared ({ caller }) func saveCallerUserProfile(profile : UserProfile) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only users can save profiles");
     };
     profiles.add(caller, profile);
   };
 
   public query ({ caller }) func getUserProfile(user : Principal) : async ?UserProfile {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only users can view profiles");
+    };
+    if (caller != user and not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Can only view your own profile unless admin");
     };
     profiles.get(user);
   };
 
   public query ({ caller }) func getProfile(user : Principal) : async ?UserProfile {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only users can view profiles");
+    };
+    if (caller != user and not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Can only view your own profile unless admin");
     };
     profiles.get(user);
   };
 
   public query ({ caller }) func getAllUsers() : async [Principal] {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only users can view user list");
     };
     profiles.keys().toArray();
   };
 
   public shared ({ caller }) func createPost(content : Text, imageBlobId : ?Storage.ExternalBlob) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only users can create posts");
     };
     let post : Post = {
       id = nextPostId.toText(); author = caller; content; imageBlobId;
@@ -208,7 +214,7 @@ actor {
 
   public shared ({ caller }) func likePost(postId : PostId) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only users can like posts");
     };
     switch (posts.get(postId)) {
       case (null) { Runtime.trap("Post not found") };
@@ -232,7 +238,7 @@ actor {
 
   public shared ({ caller }) func unlikePost(postId : PostId) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only users can unlike posts");
     };
     switch (posts.get(postId)) {
       case (null) { Runtime.trap("Post not found") };
@@ -242,7 +248,7 @@ actor {
 
   public shared ({ caller }) func addComment(postId : PostId, content : Text) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only users can comment");
     };
     switch (posts.get(postId)) {
       case (null) { Runtime.trap("Post not found") };
@@ -271,7 +277,7 @@ actor {
 
   public shared ({ caller }) func replyToComment(postId : PostId, commentId : CommentId, content : Text) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only users can reply to comments");
     };
     switch (posts.get(postId)) {
       case (null) { Runtime.trap("Post not found") };
@@ -295,7 +301,7 @@ actor {
 
   public query ({ caller }) func getFeed(page : Nat, pageSize : Nat) : async [PostView] {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only users can view feed");
     };
     let sorted = posts.values().toArray().sort(comparePostsDesc);
     let start = page * pageSize;
@@ -306,7 +312,7 @@ actor {
 
   public query ({ caller }) func getUserPosts(user : Principal, page : Nat, pageSize : Nat) : async [PostView] {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only users can view posts");
     };
     let filtered = posts.values().toArray().filter(func(p) { p.author == user });
     let sorted = filtered.sort(comparePostsDesc);
@@ -318,7 +324,7 @@ actor {
 
   public query ({ caller }) func getMyNotifications() : async [NotificationView] {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only users can view notifications");
     };
     let mine = notifications.values().toArray().filter(func(n) { n.recipientPrincipal == caller });
     mine.sort(compareNotifDesc).map(func(n) : NotificationView {
@@ -331,12 +337,14 @@ actor {
 
   public shared ({ caller }) func markNotificationRead(notifId : NotificationId) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only users can mark notifications");
     };
     switch (notifications.get(notifId)) {
-      case (null) { Runtime.trap("Not found") };
+      case (null) { Runtime.trap("Notification not found") };
       case (?n) {
-        if (n.recipientPrincipal != caller) { Runtime.trap("Unauthorized") };
+        if (n.recipientPrincipal != caller) { 
+          Runtime.trap("Unauthorized: Can only mark your own notifications as read") 
+        };
         notifications.add(notifId, { n with isRead = true });
       };
     };
@@ -344,7 +352,7 @@ actor {
 
   public shared ({ caller }) func markAllNotificationsRead() : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only users can mark notifications");
     };
     let mine = notifications.toArray().filter(func((_, n)) { n.recipientPrincipal == caller });
     for ((id, n) in mine.values()) {
@@ -355,7 +363,7 @@ actor {
   // Chat: send group message
   public shared ({ caller }) func sendGroupMessage(content : Text) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only users can send messages");
     };
     let msg : ChatMessage = {
       id = nextChatMessageId.toText(); sender = caller; content;
@@ -368,7 +376,7 @@ actor {
   // Chat: send private message
   public shared ({ caller }) func sendPrivateMessage(recipient : Principal, content : Text) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only users can send messages");
     };
     let msg : ChatMessage = {
       id = nextChatMessageId.toText(); sender = caller; content;
@@ -381,7 +389,7 @@ actor {
   // Chat: get group messages
   public query ({ caller }) func getGroupMessages(page : Nat, pageSize : Nat) : async [ChatMessageView] {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only users can view messages");
     };
     let group = chatMessages.values().toArray().filter(func(m) { m.recipient == null });
     let sorted = group.sort(compareChatDesc);
@@ -394,7 +402,7 @@ actor {
   // Chat: get private messages between caller and another user
   public query ({ caller }) func getPrivateMessages(other : Principal, page : Nat, pageSize : Nat) : async [ChatMessageView] {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only users can view messages");
     };
     let conv = chatMessages.values().toArray().filter(func(m) {
       switch (m.recipient) {
@@ -422,14 +430,14 @@ actor {
 
   public shared ({ caller }) func deleteExpiredPosts() : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #admin))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only admins can delete expired posts");
     };
     await cleanupExpired();
   };
 
   public shared ({ caller }) func startAutoDeleteTimer() : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #admin))) {
-      Runtime.trap("Unauthorized");
+      Runtime.trap("Unauthorized: Only admins can start auto-delete timer");
     };
     ignore Timer.recurringTimer<system>(
       #seconds(86400),

@@ -10,6 +10,14 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
+export type ChatMessageId = string;
+export interface ChatMessageView {
+  'id' : ChatMessageId,
+  'content' : string,
+  'recipient' : [] | [Principal],
+  'sender' : Principal,
+  'createdTimestamp' : Time,
+}
 export type CommentId = string;
 export interface CommentView {
   'id' : CommentId,
@@ -85,10 +93,16 @@ export interface _SERVICE {
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
   'createPost' : ActorMethod<[string, [] | [ExternalBlob]], undefined>,
   'deleteExpiredPosts' : ActorMethod<[], undefined>,
+  'getAllUsers' : ActorMethod<[], Array<Principal>>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
   'getFeed' : ActorMethod<[bigint, bigint], Array<PostView>>,
+  'getGroupMessages' : ActorMethod<[bigint, bigint], Array<ChatMessageView>>,
   'getMyNotifications' : ActorMethod<[], Array<NotificationView>>,
+  'getPrivateMessages' : ActorMethod<
+    [Principal, bigint, bigint],
+    Array<ChatMessageView>
+  >,
   'getProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
   'getUserPosts' : ActorMethod<[Principal, bigint, bigint], Array<PostView>>,
   'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
@@ -98,6 +112,8 @@ export interface _SERVICE {
   'markNotificationRead' : ActorMethod<[NotificationId], undefined>,
   'replyToComment' : ActorMethod<[PostId, CommentId, string], undefined>,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
+  'sendGroupMessage' : ActorMethod<[string], undefined>,
+  'sendPrivateMessage' : ActorMethod<[Principal, string], undefined>,
   'startAutoDeleteTimer' : ActorMethod<[], undefined>,
   'unlikePost' : ActorMethod<[PostId], undefined>,
 }

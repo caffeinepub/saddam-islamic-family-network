@@ -54,6 +54,14 @@ export const PostView = IDL.Record({
   'comments' : IDL.Vec(CommentView),
   'imageBlobId' : IDL.Opt(ExternalBlob),
 });
+export const ChatMessageId = IDL.Text;
+export const ChatMessageView = IDL.Record({
+  'id' : ChatMessageId,
+  'content' : IDL.Text,
+  'recipient' : IDL.Opt(IDL.Principal),
+  'sender' : IDL.Principal,
+  'createdTimestamp' : Time,
+});
 export const NotificationId = IDL.Text;
 export const NotificationType = IDL.Variant({
   'like' : IDL.Null,
@@ -102,10 +110,21 @@ export const idlService = IDL.Service({
   'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
   'createPost' : IDL.Func([IDL.Text, IDL.Opt(ExternalBlob)], [], []),
   'deleteExpiredPosts' : IDL.Func([], [], []),
+  'getAllUsers' : IDL.Func([], [IDL.Vec(IDL.Principal)], ['query']),
   'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
   'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
   'getFeed' : IDL.Func([IDL.Nat, IDL.Nat], [IDL.Vec(PostView)], ['query']),
+  'getGroupMessages' : IDL.Func(
+      [IDL.Nat, IDL.Nat],
+      [IDL.Vec(ChatMessageView)],
+      ['query'],
+    ),
   'getMyNotifications' : IDL.Func([], [IDL.Vec(NotificationView)], ['query']),
+  'getPrivateMessages' : IDL.Func(
+      [IDL.Principal, IDL.Nat, IDL.Nat],
+      [IDL.Vec(ChatMessageView)],
+      ['query'],
+    ),
   'getProfile' : IDL.Func([IDL.Principal], [IDL.Opt(UserProfile)], ['query']),
   'getUserPosts' : IDL.Func(
       [IDL.Principal, IDL.Nat, IDL.Nat],
@@ -123,6 +142,8 @@ export const idlService = IDL.Service({
   'markNotificationRead' : IDL.Func([NotificationId], [], []),
   'replyToComment' : IDL.Func([PostId, CommentId, IDL.Text], [], []),
   'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
+  'sendGroupMessage' : IDL.Func([IDL.Text], [], []),
+  'sendPrivateMessage' : IDL.Func([IDL.Principal, IDL.Text], [], []),
   'startAutoDeleteTimer' : IDL.Func([], [], []),
   'unlikePost' : IDL.Func([PostId], [], []),
 });
@@ -176,6 +197,14 @@ export const idlFactory = ({ IDL }) => {
     'comments' : IDL.Vec(CommentView),
     'imageBlobId' : IDL.Opt(ExternalBlob),
   });
+  const ChatMessageId = IDL.Text;
+  const ChatMessageView = IDL.Record({
+    'id' : ChatMessageId,
+    'content' : IDL.Text,
+    'recipient' : IDL.Opt(IDL.Principal),
+    'sender' : IDL.Principal,
+    'createdTimestamp' : Time,
+  });
   const NotificationId = IDL.Text;
   const NotificationType = IDL.Variant({
     'like' : IDL.Null,
@@ -224,10 +253,21 @@ export const idlFactory = ({ IDL }) => {
     'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
     'createPost' : IDL.Func([IDL.Text, IDL.Opt(ExternalBlob)], [], []),
     'deleteExpiredPosts' : IDL.Func([], [], []),
+    'getAllUsers' : IDL.Func([], [IDL.Vec(IDL.Principal)], ['query']),
     'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
     'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
     'getFeed' : IDL.Func([IDL.Nat, IDL.Nat], [IDL.Vec(PostView)], ['query']),
+    'getGroupMessages' : IDL.Func(
+        [IDL.Nat, IDL.Nat],
+        [IDL.Vec(ChatMessageView)],
+        ['query'],
+      ),
     'getMyNotifications' : IDL.Func([], [IDL.Vec(NotificationView)], ['query']),
+    'getPrivateMessages' : IDL.Func(
+        [IDL.Principal, IDL.Nat, IDL.Nat],
+        [IDL.Vec(ChatMessageView)],
+        ['query'],
+      ),
     'getProfile' : IDL.Func([IDL.Principal], [IDL.Opt(UserProfile)], ['query']),
     'getUserPosts' : IDL.Func(
         [IDL.Principal, IDL.Nat, IDL.Nat],
@@ -245,6 +285,8 @@ export const idlFactory = ({ IDL }) => {
     'markNotificationRead' : IDL.Func([NotificationId], [], []),
     'replyToComment' : IDL.Func([PostId, CommentId, IDL.Text], [], []),
     'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
+    'sendGroupMessage' : IDL.Func([IDL.Text], [], []),
+    'sendPrivateMessage' : IDL.Func([IDL.Principal, IDL.Text], [], []),
     'startAutoDeleteTimer' : IDL.Func([], [], []),
     'unlikePost' : IDL.Func([PostId], [], []),
   });
