@@ -3,7 +3,9 @@ import type { Principal } from "@icp-sdk/core/principal";
 import { useEffect, useState } from "react";
 import BottomNav from "./components/BottomNav";
 import ProfileSetupModal from "./components/ProfileSetupModal";
+import { MobileHeader } from "./components/TopNav";
 import TopNav from "./components/TopNav";
+import { ThemeProvider } from "./contexts/ThemeContext";
 import { useActor } from "./hooks/useActor";
 import { useInternetIdentity } from "./hooks/useInternetIdentity";
 import { useGetCallerUserProfile } from "./hooks/useQueries";
@@ -16,7 +18,7 @@ import ProfilePage from "./pages/ProfilePage";
 
 export type Page = "feed" | "profile" | "members" | "member-profile" | "chat";
 
-export default function App() {
+function AppInner() {
   const { identity, isInitializing } = useInternetIdentity();
   const [currentPage, setCurrentPage] = useState<Page>("feed");
   const [selectedMember, setSelectedMember] = useState<Principal | null>(null);
@@ -31,12 +33,9 @@ export default function App() {
   const showProfileSetup =
     isAuthenticated && !profileLoading && isFetched && userProfile === null;
 
-  // Start the auto-delete timer once the actor is ready (admin-only; errors silently ignored for regular users)
   useEffect(() => {
     if (!actor || actorFetching) return;
-    actor.startAutoDeleteTimer().catch(() => {
-      // Silently ignore — only admins can start this; regular users get a permission error
-    });
+    actor.startAutoDeleteTimer().catch(() => {});
   }, [actor, actorFetching]);
 
   if (isInitializing) {
@@ -62,6 +61,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <Toaster position="top-center" />
+      <MobileHeader currentPage={currentPage} setCurrentPage={setCurrentPage} />
       <TopNav currentPage={currentPage} setCurrentPage={setCurrentPage} />
 
       <main className="flex-1 pt-16 pb-20 md:pb-4">
@@ -88,5 +88,13 @@ export default function App() {
 
       {showProfileSetup && <ProfileSetupModal />}
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppInner />
+    </ThemeProvider>
   );
 }
