@@ -62,6 +62,7 @@ export function useSaveUserProfile() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["currentUserProfile"] });
       queryClient.invalidateQueries({ queryKey: ["feedAuthors"] });
+      queryClient.invalidateQueries({ queryKey: ["allMembers"] });
     },
   });
 }
@@ -138,7 +139,6 @@ export function useLikePost() {
       }
     },
     onMutate: async ({ postId, liked }) => {
-      // Optimistic update
       await queryClient.cancelQueries({ queryKey: ["feed"] });
       const previousFeeds = queryClient.getQueriesData<PostView[]>({
         queryKey: ["feed"],
@@ -216,8 +216,37 @@ export function useReplyToComment() {
   });
 }
 
-// ─── Feed Authors / Family Members ────────────────────────────────────────────
+// ─── Family Members (All registered users) ────────────────────────────────────
 
+export function useGetAllMembers() {
+  const { actor, isFetching: actorFetching } = useActor();
+
+  return useQuery<FeedAuthor[]>({
+    queryKey: ["allMembers"],
+    queryFn: async () => {
+      if (!actor) return [];
+
+      // Get all registered users from backend
+      const principals = await actor.getAllUsers();
+
+      // Fetch all profiles in parallel
+      const profiles = await Promise.all(
+        principals.map((principal) =>
+          actor.getUserProfile(principal).catch(() => null),
+        ),
+      );
+
+      return principals.map((principal, i) => ({
+        principal,
+        profile: profiles[i] ?? null,
+      }));
+    },
+    enabled: !!actor && !actorFetching,
+    staleTime: 60_000,
+  });
+}
+
+// Keep useGetFeedAuthors as fallback (used in chat/other places)
 export function useGetFeedAuthors() {
   const { actor, isFetching: actorFetching } = useActor();
 
@@ -226,33 +255,30 @@ export function useGetFeedAuthors() {
     queryFn: async () => {
       if (!actor) return [];
 
-      // Fetch pages 0, 1, 2 in parallel
-      const [page0, page1, page2] = await Promise.all([
-        actor.getFeed(BigInt(0), BigInt(10)),
-        actor.getFeed(BigInt(1), BigInt(10)),
-        actor.getFeed(BigInt(2), BigInt(10)),
-      ]);
-
-      const allPosts = [...page0, ...page1, ...page2];
-
-      // Extract unique author principals
-      const seenPrincipals = new Map<string, Principal>();
-      for (const post of allPosts) {
-        const key = post.author.toString();
-        if (!seenPrincipals.has(key)) {
-          seenPrincipals.set(key, post.author);
+      // Get all registered users
+      const principals = await actor.getAllUsers().catch(async () => {
+        // Fallback: extract from feed posts
+        const [page0, page1, page2] = await Promise.all([
+          actor.getFeed(BigInt(0), BigInt(10)),
+          actor.getFeed(BigInt(1), BigInt(10)),
+          actor.getFeed(BigInt(2), BigInt(10)),
+        ]);
+        const allPosts = [...page0, ...page1, ...page2];
+        const seenPrincipals = new Map<string, Principal>();
+        for (const post of allPosts) {
+          const key = post.author.toString();
+          if (!seenPrincipals.has(key)) seenPrincipals.set(key, post.author);
         }
-      }
+        return Array.from(seenPrincipals.values());
+      });
 
-      // Fetch all profiles in parallel
-      const entries = Array.from(seenPrincipals.values());
       const profiles = await Promise.all(
-        entries.map((principal) =>
+        principals.map((principal) =>
           actor.getUserProfile(principal).catch(() => null),
         ),
       );
 
-      return entries.map((principal, i) => ({
+      return principals.map((principal, i) => ({
         principal,
         profile: profiles[i] ?? null,
       }));

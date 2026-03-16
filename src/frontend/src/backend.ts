@@ -154,6 +154,16 @@ export enum UserRole {
     user = "user",
     guest = "guest"
 }
+export type UserStatus = { pending: null } | { approved: null } | { rejected: null } | { blocked: null };
+export type UserAdminRole = { none: null } | { helperAdmin: null } | { superAdmin: null };
+export interface AdminUserView {
+    principal: Principal;
+    profile: UserProfile;
+    email: string;
+    status: UserStatus;
+    adminRole: UserAdminRole;
+    signupDate: Time;
+}
 export interface backendInterface {
     _caffeineStorageBlobIsLive(hash: Uint8Array): Promise<boolean>;
     _caffeineStorageBlobsToDelete(): Promise<Array<Uint8Array>>;
@@ -167,6 +177,11 @@ export interface backendInterface {
     createPost(content: string, imageBlobId: ExternalBlob | null): Promise<void>;
     deleteExpiredPosts(): Promise<void>;
     getAllUsers(): Promise<Array<Principal>>;
+    getAllUsersAdminView(): Promise<Array<AdminUserView>>;
+    getCallerAdminRole(): Promise<UserAdminRole>;
+    getCallerEmail(): Promise<string | null>;
+    saveCallerEmail(email: string): Promise<void>;
+    getCallerStatus(): Promise<UserStatus>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
     getFeed(page: bigint, pageSize: bigint): Promise<Array<PostView>>;
@@ -177,6 +192,7 @@ export interface backendInterface {
     getUserPosts(user: Principal, page: bigint, pageSize: bigint): Promise<Array<PostView>>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
     isCallerAdmin(): Promise<boolean>;
+    isSuperAdmin(): Promise<boolean>;
     likePost(postId: PostId): Promise<void>;
     markAllNotificationsRead(): Promise<void>;
     markNotificationRead(notifId: NotificationId): Promise<void>;
@@ -184,10 +200,12 @@ export interface backendInterface {
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
     sendGroupMessage(content: string): Promise<void>;
     sendPrivateMessage(recipient: Principal, content: string): Promise<void>;
+    setHelperAdmin(user: Principal, isHelper: boolean): Promise<void>;
     startAutoDeleteTimer(): Promise<void>;
     unlikePost(postId: PostId): Promise<void>;
+    updateUserStatus(user: Principal, status: UserStatus): Promise<void>;
 }
-import type { ChatMessageId as _ChatMessageId, ChatMessageView as _ChatMessageView, CommentId as _CommentId, CommentView as _CommentView, ExternalBlob as _ExternalBlob, NotificationId as _NotificationId, NotificationType as _NotificationType, NotificationView as _NotificationView, PostId as _PostId, PostView as _PostView, Time as _Time, UserProfile as _UserProfile, UserRole as _UserRole, _CaffeineStorageRefillInformation as __CaffeineStorageRefillInformation, _CaffeineStorageRefillResult as __CaffeineStorageRefillResult } from "./declarations/backend.did.d.ts";
+import type { ChatMessageId as _ChatMessageId, ChatMessageView as _ChatMessageView, CommentId as _CommentId, CommentView as _CommentView, ExternalBlob as _ExternalBlob, NotificationId as _NotificationId, NotificationType as _NotificationType, NotificationView as _NotificationView, PostId as _PostId, PostView as _PostView, Time as _Time, UserProfile as _UserProfile, UserRole as _UserRole, _CaffeineStorageRefillInformation as __CaffeineStorageRefillInformation, _CaffeineStorageRefillResult as __CaffeineStorageRefillResult, AdminUserView as _AdminUserView, UserStatus as _UserStatus, UserAdminRole as _UserAdminRole } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
     async _caffeineStorageBlobIsLive(arg0: Uint8Array): Promise<boolean> {
@@ -358,6 +376,76 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async getAllUsersAdminView(): Promise<Array<AdminUserView>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAllUsersAdminView();
+                return await from_candid_vec_AdminUserView(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAllUsersAdminView();
+            return await from_candid_vec_AdminUserView(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getCallerAdminRole(): Promise<UserAdminRole> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getCallerAdminRole();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getCallerAdminRole();
+            return result;
+        }
+    }
+    async getCallerEmail(): Promise<string | null> {
+        if (this.processError) {
+            try {
+                const result = await (this.actor as any).getCallerEmail();
+                return Array.isArray(result) ? (result.length === 0 ? null : result[0]) : (result ?? null);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await (this.actor as any).getCallerEmail();
+            return Array.isArray(result) ? (result.length === 0 ? null : result[0]) : (result ?? null);
+        }
+    }
+    async saveCallerEmail(arg0: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await (this.actor as any).saveCallerEmail(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await (this.actor as any).saveCallerEmail(arg0);
+            return result;
+        }
+    }
+    async getCallerStatus(): Promise<UserStatus> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getCallerStatus();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getCallerStatus();
+            return result;
+        }
+    }
     async getCallerUserProfile(): Promise<UserProfile | null> {
         if (this.processError) {
             try {
@@ -498,6 +586,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async isSuperAdmin(): Promise<boolean> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.isSuperAdmin();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.isSuperAdmin();
+            return result;
+        }
+    }
     async likePost(arg0: PostId): Promise<void> {
         if (this.processError) {
             try {
@@ -596,6 +698,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async setHelperAdmin(arg0: Principal, arg1: boolean): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.setHelperAdmin(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.setHelperAdmin(arg0, arg1);
+            return result;
+        }
+    }
     async startAutoDeleteTimer(): Promise<void> {
         if (this.processError) {
             try {
@@ -621,6 +737,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.unlikePost(arg0);
+            return result;
+        }
+    }
+    async updateUserStatus(arg0: Principal, arg1: UserStatus): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.updateUserStatus(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.updateUserStatus(arg0, arg1);
             return result;
         }
     }
@@ -826,6 +956,18 @@ function from_candid_vec_n25(_uploadFile: (file: ExternalBlob) => Promise<Uint8A
 }
 function from_candid_vec_n29(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_NotificationView>): Array<NotificationView> {
     return value.map((x)=>from_candid_NotificationView_n30(_uploadFile, _downloadFile, x));
+}
+async function from_candid_vec_AdminUserView(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<any>): Promise<Array<AdminUserView>> {
+    return await Promise.all(value.map(async (x) => {
+        return {
+            principal: x.principal,
+            profile: await from_candid_record_n14(_uploadFile, _downloadFile, x.profile),
+            email: typeof x.email === "string" ? x.email : (Array.isArray(x.email) && x.email.length > 0 ? x.email[0] : ""),
+            status: x.status,
+            adminRole: x.adminRole,
+            signupDate: x.signupDate
+        };
+    }));
 }
 async function to_candid_ExternalBlob_n11(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: ExternalBlob): Promise<_ExternalBlob> {
     return await _uploadFile(value);

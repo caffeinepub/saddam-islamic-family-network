@@ -115,7 +115,6 @@ export default function ProfilePage() {
     }
 
     try {
-      // Recreate ExternalBlob references from URL to avoid serialization issues
       let newProfilePhotoId: ExternalBlob | undefined = undefined;
       let newCoverPhotoId: ExternalBlob | undefined = undefined;
 
@@ -198,7 +197,6 @@ export default function ProfilePage() {
         {/* Profile info */}
         <div className="relative px-4 pb-4">
           <div className="flex items-end justify-between -mt-12 mb-4">
-            {/* Avatar */}
             <div className="relative">
               {profileLoading ? (
                 <Skeleton className="w-24 h-24 rounded-full border-4 border-background" />
@@ -219,7 +217,6 @@ export default function ProfilePage() {
               )}
             </div>
 
-            {/* Edit button */}
             <Button
               data-ocid="profile.edit_button"
               onClick={openEdit}
@@ -232,7 +229,6 @@ export default function ProfilePage() {
             </Button>
           </div>
 
-          {/* Username & bio */}
           {profileLoading ? (
             <div className="space-y-2">
               <Skeleton className="h-5 w-40 rounded" />
@@ -258,7 +254,6 @@ export default function ProfilePage() {
           )}
         </div>
 
-        {/* Divider with Arabic text */}
         <div className="px-4 mb-4">
           <div className="bg-card rounded-xl py-2 px-4 text-center border border-border">
             <span className="text-xs font-arabic text-islamic-green">
@@ -267,7 +262,6 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* User posts */}
         <div className="px-4 pb-8">
           <h2 className="font-display font-bold text-foreground text-base mb-4">
             My Posts
@@ -311,7 +305,6 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* Edit Profile Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent
           data-ocid="profile.edit_dialog"
@@ -324,7 +317,6 @@ export default function ProfilePage() {
           </DialogHeader>
 
           <form onSubmit={handleSave} className="space-y-5">
-            {/* Profile Photo */}
             <div className="space-y-2">
               <Label className="text-sm font-medium text-foreground">
                 Profile Photo
@@ -376,7 +368,6 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            {/* Cover Photo */}
             <div className="space-y-2">
               <Label className="text-sm font-medium text-foreground">
                 Cover Photo
@@ -424,7 +415,6 @@ export default function ProfilePage() {
               )}
             </div>
 
-            {/* Username */}
             <div className="space-y-1.5">
               <Label
                 htmlFor="edit-username"
@@ -443,7 +433,6 @@ export default function ProfilePage() {
               />
             </div>
 
-            {/* Bio */}
             <div className="space-y-1.5">
               <Label
                 htmlFor="edit-bio"

@@ -19,16 +19,32 @@ actor {
   include MixinAuthorization(accessControlState);
   include MixinStorage();
 
+  let SUPER_ADMIN_EMAIL : Text = "mdsaddamislamic@gmail.com";
+
   type PostId = Text;
   type CommentId = Text;
   type NotificationId = Text;
   type ChatMessageId = Text;
 
+  public type UserStatus = { #pending; #approved; #rejected; #blocked };
+  public type UserAdminRole = { #none; #helperAdmin; #superAdmin };
+
+  // UserProfile remains UNCHANGED from original for stable variable compatibility
   public type UserProfile = {
     username : Text;
     bio : Text;
     profilePhotoId : ?Storage.ExternalBlob;
     coverPhotoId : ?Storage.ExternalBlob;
+  };
+
+  // AdminUserView includes email as a separate top-level field
+  public type AdminUserView = {
+    principal : Principal;
+    profile : UserProfile;
+    email : Text;
+    status : UserStatus;
+    adminRole : UserAdminRole;
+    signupDate : Time.Time;
   };
 
   public type CommentView = {
@@ -68,7 +84,6 @@ actor {
     sender : Principal;
     content : Text;
     createdTimestamp : Time.Time;
-    // For private messages: the other participant
     recipient : ?Principal;
   };
 
@@ -107,19 +122,40 @@ actor {
     sender : Principal;
     content : Text;
     createdTimestamp : Time.Time;
-    recipient : ?Principal; // null = group chat, Some = private
+    recipient : ?Principal;
   };
 
+  // Stable maps (UserProfile unchanged -- no email field to preserve compatibility)
   let profiles = Map.empty<Principal, UserProfile>();
   let posts = Map.empty<PostId, Post>();
   let notifications = Map.empty<NotificationId, Notification>();
   let chatMessages = Map.empty<ChatMessageId, ChatMessage>();
+  let userStatuses = Map.empty<Principal, UserStatus>();
+  let userAdminRoles = Map.empty<Principal, UserAdminRole>();
+  let userSignupDates = Map.empty<Principal, Time.Time>();
+  // Separate email map (new stable variable, backward compatible addition)
+  let userEmails = Map.empty<Principal, Text>();
   var nextPostId = 0;
   var nextCommentId = 0;
   var nextNotificationId = 0;
   var nextChatMessageId = 0;
 
-  let lifetimeThreshold = 30 * 24 * 60 * 60 * 1_000_000_000; // 30 days
+  let lifetimeThreshold = 30 * 24 * 60 * 60 * 1_000_000_000;
+
+  func isSuperAdminPrincipal(p : Principal) : Bool {
+    switch (userEmails.get(p)) {
+      case (?email) { email == SUPER_ADMIN_EMAIL };
+      case (null) { false };
+    };
+  };
+
+  func isAdminPrincipal(p : Principal) : Bool {
+    if (isSuperAdminPrincipal(p)) { return true };
+    switch (userAdminRoles.get(p)) {
+      case (?#helperAdmin) { true };
+      case (_) { false };
+    };
+  };
 
   func comparePostsDesc(a : Post, b : Post) : Order.Order {
     if (a.createdTimestamp > b.createdTimestamp) { #less }
@@ -168,15 +204,132 @@ actor {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can save profiles");
     };
+    // Set signup date only on first save
+    if (userSignupDates.get(caller) == null) {
+      userSignupDates.add(caller, Time.now());
+    };
     profiles.add(caller, profile);
+  };
+
+  // Save caller's email separately (used for super admin detection)
+  public shared ({ caller }) func saveCallerEmail(email : Text) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized");
+    };
+    userEmails.add(caller, email);
+    // Set status based on email
+    if (email == SUPER_ADMIN_EMAIL) {
+      userStatuses.add(caller, #approved);
+      userAdminRoles.add(caller, #superAdmin);
+    } else {
+      switch (userStatuses.get(caller)) {
+        case (null) { userStatuses.add(caller, #pending) };
+        case (_) {};
+      };
+    };
+  };
+
+  public query ({ caller }) func getCallerEmail() : async ?Text {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized");
+    };
+    userEmails.get(caller);
+  };
+
+  public query ({ caller }) func getCallerStatus() : async UserStatus {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized");
+    };
+    if (isSuperAdminPrincipal(caller)) { return #approved };
+    switch (userStatuses.get(caller)) {
+      case (?s) { s };
+      case (null) { #pending };
+    };
+  };
+
+  public query ({ caller }) func isSuperAdmin() : async Bool {
+    isSuperAdminPrincipal(caller);
+  };
+
+  public query ({ caller }) func getCallerAdminRole() : async UserAdminRole {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized");
+    };
+    if (isSuperAdminPrincipal(caller)) { return #superAdmin };
+    switch (userAdminRoles.get(caller)) {
+      case (?r) { r };
+      case (null) { #none };
+    };
+  };
+
+  // Super admin / helper admin: get all users with full details
+  public query ({ caller }) func getAllUsersAdminView() : async [AdminUserView] {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized");
+    };
+    if (not isAdminPrincipal(caller)) {
+      Runtime.trap("Unauthorized: Only admins can view all users");
+    };
+    let result = List.empty<AdminUserView>();
+    for ((p, profile) in profiles.toArray().values()) {
+      let email = switch (userEmails.get(p)) {
+        case (?e) { e };
+        case (null) { "" };
+      };
+      let status = switch (userStatuses.get(p)) {
+        case (?s) { s };
+        case (null) { #pending };
+      };
+      let adminRole = if (email == SUPER_ADMIN_EMAIL) { #superAdmin } else {
+        switch (userAdminRoles.get(p)) {
+          case (?r) { r };
+          case (null) { #none };
+        };
+      };
+      let signupDate = switch (userSignupDates.get(p)) {
+        case (?d) { d };
+        case (null) { 0 };
+      };
+      result.add({ principal = p; profile; email; status; adminRole; signupDate });
+    };
+    result.toArray();
+  };
+
+  // Super admin / helper admin: update user status
+  public shared ({ caller }) func updateUserStatus(user : Principal, status : UserStatus) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized");
+    };
+    if (not isAdminPrincipal(caller)) {
+      Runtime.trap("Unauthorized: Only admins can update user status");
+    };
+    if (isSuperAdminPrincipal(user)) {
+      Runtime.trap("Cannot change super admin status");
+    };
+    userStatuses.add(user, status);
+  };
+
+  // Only super admin can make/remove helper admins
+  public shared ({ caller }) func setHelperAdmin(user : Principal, isHelper : Bool) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized");
+    };
+    if (not isSuperAdminPrincipal(caller)) {
+      Runtime.trap("Unauthorized: Only super admin can manage helper admins");
+    };
+    if (isSuperAdminPrincipal(user)) {
+      Runtime.trap("Cannot change super admin role");
+    };
+    if (isHelper) {
+      userAdminRoles.add(user, #helperAdmin);
+    } else {
+      userAdminRoles.add(user, #none);
+    };
   };
 
   public query ({ caller }) func getUserProfile(user : Principal) : async ?UserProfile {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can view profiles");
-    };
-    if (caller != user and not AccessControl.isAdmin(accessControlState, caller)) {
-      Runtime.trap("Unauthorized: Can only view your own profile unless admin");
     };
     profiles.get(user);
   };
@@ -184,9 +337,6 @@ actor {
   public query ({ caller }) func getProfile(user : Principal) : async ?UserProfile {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can view profiles");
-    };
-    if (caller != user and not AccessControl.isAdmin(accessControlState, caller)) {
-      Runtime.trap("Unauthorized: Can only view your own profile unless admin");
     };
     profiles.get(user);
   };
@@ -342,8 +492,8 @@ actor {
     switch (notifications.get(notifId)) {
       case (null) { Runtime.trap("Notification not found") };
       case (?n) {
-        if (n.recipientPrincipal != caller) { 
-          Runtime.trap("Unauthorized: Can only mark your own notifications as read") 
+        if (n.recipientPrincipal != caller) {
+          Runtime.trap("Unauthorized: Can only mark your own notifications as read")
         };
         notifications.add(notifId, { n with isRead = true });
       };
@@ -360,7 +510,6 @@ actor {
     };
   };
 
-  // Chat: send group message
   public shared ({ caller }) func sendGroupMessage(content : Text) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can send messages");
@@ -373,7 +522,6 @@ actor {
     nextChatMessageId += 1;
   };
 
-  // Chat: send private message
   public shared ({ caller }) func sendPrivateMessage(recipient : Principal, content : Text) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can send messages");
@@ -386,7 +534,6 @@ actor {
     nextChatMessageId += 1;
   };
 
-  // Chat: get group messages
   public query ({ caller }) func getGroupMessages(page : Nat, pageSize : Nat) : async [ChatMessageView] {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can view messages");
@@ -399,7 +546,6 @@ actor {
     sorted.sliceToArray(start, end).map(chatToView);
   };
 
-  // Chat: get private messages between caller and another user
   public query ({ caller }) func getPrivateMessages(other : Principal, page : Nat, pageSize : Nat) : async [ChatMessageView] {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can view messages");

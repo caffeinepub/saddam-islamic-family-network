@@ -16,6 +16,7 @@ import { useSaveUserProfile } from "../hooks/useQueries";
 
 export default function ProfileSetupModal() {
   const [username, setUsername] = useState("");
+
   const [bio, setBio] = useState("");
   const saveProfile = useSaveUserProfile();
 

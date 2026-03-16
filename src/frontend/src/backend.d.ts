@@ -59,6 +59,16 @@ export interface UserProfile {
     profilePhotoId?: ExternalBlob;
     coverPhotoId?: ExternalBlob;
 }
+export type UserStatus = { pending: null } | { approved: null } | { rejected: null } | { blocked: null };
+export type UserAdminRole = { none: null } | { helperAdmin: null } | { superAdmin: null };
+export interface AdminUserView {
+    principal: Principal;
+    profile: UserProfile;
+    email: string;
+    status: UserStatus;
+    adminRole: UserAdminRole;
+    signupDate: Time;
+}
 export enum NotificationType {
     like = "like",
     comment = "comment"
@@ -74,6 +84,10 @@ export interface backendInterface {
     createPost(content: string, imageBlobId: ExternalBlob | null): Promise<void>;
     deleteExpiredPosts(): Promise<void>;
     getAllUsers(): Promise<Array<Principal>>;
+    getAllUsersAdminView(): Promise<Array<AdminUserView>>;
+    getCallerAdminRole(): Promise<UserAdminRole>;
+    getCallerEmail(): Promise<string | null>;
+    getCallerStatus(): Promise<UserStatus>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
     getFeed(page: bigint, pageSize: bigint): Promise<Array<PostView>>;
@@ -84,13 +98,17 @@ export interface backendInterface {
     getUserPosts(user: Principal, page: bigint, pageSize: bigint): Promise<Array<PostView>>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
     isCallerAdmin(): Promise<boolean>;
+    isSuperAdmin(): Promise<boolean>;
     likePost(postId: PostId): Promise<void>;
     markAllNotificationsRead(): Promise<void>;
     markNotificationRead(notifId: NotificationId): Promise<void>;
     replyToComment(postId: PostId, commentId: CommentId, content: string): Promise<void>;
+    saveCallerEmail(email: string): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
     sendGroupMessage(content: string): Promise<void>;
     sendPrivateMessage(recipient: Principal, content: string): Promise<void>;
+    setHelperAdmin(user: Principal, isHelper: boolean): Promise<void>;
     startAutoDeleteTimer(): Promise<void>;
     unlikePost(postId: PostId): Promise<void>;
+    updateUserStatus(user: Principal, status: UserStatus): Promise<void>;
 }

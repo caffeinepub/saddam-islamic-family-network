@@ -4,7 +4,7 @@ import type { Principal } from "@icp-sdk/core/principal";
 import { Users } from "lucide-react";
 import { motion } from "motion/react";
 import { MobileHeader } from "../components/TopNav";
-import { useGetFeedAuthors } from "../hooks/useQueries";
+import { useGetAllMembers } from "../hooks/useQueries";
 
 function getInitials(name: string): string {
   return name
@@ -20,7 +20,7 @@ interface MembersPageProps {
 }
 
 export default function MembersPage({ onSelectMember }: MembersPageProps) {
-  const { data: members, isLoading } = useGetFeedAuthors();
+  const { data: members, isLoading } = useGetAllMembers();
 
   return (
     <div className="min-h-screen bg-background">
