@@ -25,6 +25,13 @@ const SUPER_ADMIN_EMAIL = "mdsaddamislamic@gmail.com";
 
 export type Page = "feed" | "profile" | "members" | "member-profile" | "chat";
 
+// Helper: extract value from Motoko optional (?T => [] | [T] in JS)
+function fromOptional<T>(opt: [] | [T] | T | null | undefined): T | null {
+  if (opt === null || opt === undefined) return null;
+  if (Array.isArray(opt)) return opt.length > 0 ? (opt[0] as T) : null;
+  return opt as T;
+}
+
 function AppInner() {
   const { identity, isInitializing } = useInternetIdentity();
   const [currentPage, setCurrentPage] = useState<Page>("feed");
@@ -58,22 +65,33 @@ function AppInner() {
     staleTime: 30_000,
   });
 
-  const { data: callerEmail } = useQuery({
+  const { data: callerEmailRaw } = useQuery({
     queryKey: ["callerEmail"],
     queryFn: async () => {
       if (!actor) return null;
       return actor.getCallerEmail();
     },
-    enabled:
-      !!actor &&
-      !actorFetching &&
-      isAuthenticated &&
-      isFetched &&
-      userProfile !== null,
+    enabled: !!actor && !actorFetching && isAuthenticated && isFetched,
     staleTime: 60_000,
   });
 
-  const isSuperAdmin = callerEmail === SUPER_ADMIN_EMAIL;
+  // Use isSuperAdmin() backend method as the authoritative check
+  const { data: isSuperAdminBackend } = useQuery({
+    queryKey: ["isSuperAdmin"],
+    queryFn: async () => {
+      if (!actor) return false;
+      return actor.isSuperAdmin();
+    },
+    enabled: !!actor && !actorFetching && isAuthenticated,
+    staleTime: 60_000,
+  });
+
+  // Extract email from Motoko optional
+  const callerEmail = fromOptional(callerEmailRaw);
+
+  // Super admin detection: use backend flag OR email match
+  const isSuperAdmin =
+    isSuperAdminBackend === true || callerEmail === SUPER_ADMIN_EMAIL;
 
   const showProfileSetup =
     isAuthenticated && !profileLoading && isFetched && userProfile === null;
@@ -147,7 +165,7 @@ function AppInner() {
     );
   }
 
-  // Super Admin: show dedicated dashboard
+  // Super Admin: show dedicated dashboard (skip pending screen entirely)
   if (isSuperAdmin && userProfile !== null && !profileLoading) {
     return (
       <>
@@ -157,8 +175,14 @@ function AppInner() {
     );
   }
 
-  // Status checks for normal users (only after profile loaded)
-  if (!profileLoading && isFetched && userProfile !== null && userStatus) {
+  // Status checks for normal users only (only after profile loaded)
+  if (
+    !isSuperAdmin &&
+    !profileLoading &&
+    isFetched &&
+    userProfile !== null &&
+    userStatus
+  ) {
     if ("blocked" in userStatus) {
       return (
         <div
