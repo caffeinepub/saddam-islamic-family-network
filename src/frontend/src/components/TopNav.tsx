@@ -22,7 +22,7 @@ import {
 import { useState } from "react";
 import type { Page } from "../App";
 import { type Theme, useTheme } from "../contexts/ThemeContext";
-import { useInternetIdentity } from "../hooks/useInternetIdentity";
+import { useEmailAuth } from "../hooks/useEmailAuth";
 import NotificationBell from "./NotificationBell";
 
 interface TopNavProps {
@@ -43,7 +43,7 @@ const THEME_ICONS: Record<Theme, React.ReactNode> = {
 };
 
 export default function TopNav({ currentPage, setCurrentPage }: TopNavProps) {
-  const { clear, identity } = useInternetIdentity();
+  const { clear, identity } = useEmailAuth();
   const queryClient = useQueryClient();
   const { theme, cycleTheme } = useTheme();
 
@@ -175,7 +175,7 @@ export function MobileHeader({
   setCurrentPage,
 }: MobileHeaderProps) {
   const { theme, cycleTheme } = useTheme();
-  const { clear } = useInternetIdentity();
+  const { clear } = useEmailAuth();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
 

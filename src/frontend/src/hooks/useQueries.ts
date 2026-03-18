@@ -4,7 +4,7 @@ import { useRef } from "react";
 import type { ExternalBlob } from "../backend";
 import type { NotificationView, PostView, UserProfile } from "../backend";
 import { useActor } from "./useActor";
-import { useInternetIdentity } from "./useInternetIdentity";
+import { useEmailAuth } from "./useEmailAuth";
 
 export interface FeedAuthor {
   principal: Principal;
@@ -121,7 +121,7 @@ export function useCreatePost() {
 export function useLikePost() {
   const { actor } = useActor();
   const queryClient = useQueryClient();
-  const { identity } = useInternetIdentity();
+  const { identity } = useEmailAuth();
 
   return useMutation({
     mutationFn: async ({

@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Home, LogOut, MessageCircle, User, Users } from "lucide-react";
 import type { Page } from "../App";
-import { useInternetIdentity } from "../hooks/useInternetIdentity";
+import { useEmailAuth } from "../hooks/useEmailAuth";
 import NotificationBell from "./NotificationBell";
 
 interface BottomNavProps {
@@ -13,7 +13,7 @@ export default function BottomNav({
   currentPage,
   setCurrentPage,
 }: BottomNavProps) {
-  const { clear, identity } = useInternetIdentity();
+  const { clear, identity } = useEmailAuth();
   const queryClient = useQueryClient();
 
   const handleLogout = () => {

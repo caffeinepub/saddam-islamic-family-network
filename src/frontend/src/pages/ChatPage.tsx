@@ -16,7 +16,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { UserProfile } from "../backend";
 import { useActor } from "../hooks/useActor";
-import { useInternetIdentity } from "../hooks/useInternetIdentity";
+import { useEmailAuth } from "../hooks/useEmailAuth";
 
 type PrivateChatView = "member-list" | "conversation";
 
@@ -84,7 +84,7 @@ function MessageTick({ messageId }: { messageId: string }) {
 // ── Group Chat ─────────────────────────────────────────────────────────────
 function GroupChat() {
   const { actor, isFetching } = useActor();
-  const { identity } = useInternetIdentity();
+  const { identity } = useEmailAuth();
   const myPrincipal = identity?.getPrincipal().toString();
 
   const [messages, setMessages] = useState<ChatMessageView[]>([]);
@@ -270,7 +270,7 @@ function GroupChat() {
 // ── Private Chat ────────────────────────────────────────────────────────────
 function PrivateChat() {
   const { actor, isFetching } = useActor();
-  const { identity } = useInternetIdentity();
+  const { identity } = useEmailAuth();
   const myPrincipal = identity?.getPrincipal().toString();
 
   const [view, setView] = useState<PrivateChatView>("member-list");

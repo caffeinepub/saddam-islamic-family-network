@@ -3,11 +3,11 @@ import { useEffect } from "react";
 import type { backendInterface } from "../backend";
 import { createActorWithConfig } from "../config";
 import { getSecretParameter } from "../utils/urlParams";
-import { useInternetIdentity } from "./useInternetIdentity";
+import { useEmailAuth } from "./useEmailAuth";
 
 const ACTOR_QUERY_KEY = "actor";
 export function useActor() {
-  const { identity } = useInternetIdentity();
+  const { identity } = useEmailAuth();
   const queryClient = useQueryClient();
   const actorQuery = useQuery<backendInterface>({
     queryKey: [ACTOR_QUERY_KEY, identity?.getPrincipal().toString()],
@@ -27,7 +27,8 @@ export function useActor() {
 
       const actor = await createActorWithConfig(actorOptions);
       const adminToken = getSecretParameter("caffeineAdminToken") || "";
-      await actor._initializeAccessControlWithSecret(adminToken);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (actor as any)._initializeAccessControlWithSecret(adminToken);
       return actor;
     },
     // Only refetch when identity changes

@@ -1,18 +1,15 @@
 import { Toaster } from "@/components/ui/sonner";
 import type { Principal } from "@icp-sdk/core/principal";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import BottomNav from "./components/BottomNav";
 import ProfileSetupModal from "./components/ProfileSetupModal";
 import { MobileHeader } from "./components/TopNav";
 import TopNav from "./components/TopNav";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { useActor } from "./hooks/useActor";
-import { useInternetIdentity } from "./hooks/useInternetIdentity";
-import {
-  useGetCallerUserProfile,
-  useSaveUserProfile,
-} from "./hooks/useQueries";
+import { useEmailAuth } from "./hooks/useEmailAuth";
+import { useGetCallerUserProfile } from "./hooks/useQueries";
 import AuthScreen from "./pages/AuthScreen";
 import ChatPage from "./pages/ChatPage";
 import FeedPage from "./pages/FeedPage";
@@ -33,15 +30,11 @@ function fromOptional<T>(opt: [] | [T] | T | null | undefined): T | null {
 }
 
 function AppInner() {
-  const { identity, isInitializing } = useInternetIdentity();
+  const { identity, email: authEmail, isInitializing } = useEmailAuth();
   const [currentPage, setCurrentPage] = useState<Page>("feed");
   const [selectedMember, setSelectedMember] = useState<Principal | null>(null);
   const isAuthenticated = !!identity;
   const { actor, isFetching: actorFetching } = useActor();
-  const saveProfile = useSaveUserProfile();
-  const saveProfileRef = useRef(saveProfile);
-  saveProfileRef.current = saveProfile;
-  const autoSaveAttempted = useRef(false);
 
   const {
     data: userProfile,
@@ -86,12 +79,13 @@ function AppInner() {
     staleTime: 60_000,
   });
 
-  // Extract email from Motoko optional
-  const callerEmail = fromOptional(callerEmailRaw);
+  // Extract email: prefer local auth email, fallback to backend
+  const callerEmail = authEmail ?? fromOptional(callerEmailRaw);
 
   // Super admin detection: use backend flag OR email match
   const isSuperAdmin =
-    isSuperAdminBackend === true || callerEmail === SUPER_ADMIN_EMAIL;
+    isSuperAdminBackend === true ||
+    callerEmail?.toLowerCase() === SUPER_ADMIN_EMAIL;
 
   const showProfileSetup =
     isAuthenticated && !profileLoading && isFetched && userProfile === null;
@@ -100,50 +94,6 @@ function AppInner() {
     if (!actor || actorFetching) return;
     actor.startAutoDeleteTimer().catch(() => {});
   }, [actor, actorFetching]);
-
-  // Auto-save profile from signup data if available
-  useEffect(() => {
-    if (!actor || actorFetching || !isAuthenticated) return;
-    if (!isFetched || userProfile !== null) return;
-    if (autoSaveAttempted.current) return;
-
-    const pendingRaw = localStorage.getItem("pendingSignupData");
-    if (!pendingRaw) return;
-
-    autoSaveAttempted.current = true;
-
-    try {
-      const pending = JSON.parse(pendingRaw) as {
-        username: string;
-        email: string;
-        relation: string;
-        age: string;
-        photoDataUrl: string | null;
-      };
-
-      const bio = `Relation: ${pending.relation} | Age: ${pending.age}`;
-
-      saveProfileRef.current
-        .mutateAsync({
-          username: pending.username,
-          bio,
-          profilePhotoId: undefined,
-          coverPhotoId: undefined,
-        })
-        .then(async () => {
-          if (pending.email && actor) {
-            await actor.saveCallerEmail(pending.email).catch(() => {});
-          }
-          localStorage.removeItem("pendingSignupData");
-          localStorage.removeItem("pendingSignupPhoto");
-        })
-        .catch(() => {
-          autoSaveAttempted.current = false;
-        });
-    } catch {
-      localStorage.removeItem("pendingSignupData");
-    }
-  }, [actor, actorFetching, isAuthenticated, isFetched, userProfile]);
 
   if (isInitializing) {
     return (
@@ -306,9 +256,7 @@ function AppInner() {
 
       <BottomNav currentPage={currentPage} setCurrentPage={setCurrentPage} />
 
-      {showProfileSetup && !localStorage.getItem("pendingSignupData") && (
-        <ProfileSetupModal />
-      )}
+      {showProfileSetup && <ProfileSetupModal />}
     </div>
   );
 }

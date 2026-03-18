@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import { ExternalBlob } from "../backend";
 import PostCard from "../components/PostCard";
 import { MobileHeader } from "../components/TopNav";
-import { useInternetIdentity } from "../hooks/useInternetIdentity";
+import { useEmailAuth } from "../hooks/useEmailAuth";
 import {
   useGetCallerUserProfile,
   useGetUserPosts,
@@ -34,7 +34,7 @@ function getInitials(name: string): string {
 }
 
 export default function ProfilePage() {
-  const { identity } = useInternetIdentity();
+  const { identity } = useEmailAuth();
   const { data: profile, isLoading: profileLoading } =
     useGetCallerUserProfile();
   const [page] = useState(0);

@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { EmailAuthProvider } from "./hooks/useEmailAuth";
 import { InternetIdentityProvider } from "./hooks/useInternetIdentity";
 import "./index.css";
 
@@ -18,8 +19,10 @@ const queryClient = new QueryClient();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <QueryClientProvider client={queryClient}>
-    <InternetIdentityProvider>
-      <App />
-    </InternetIdentityProvider>
+    <EmailAuthProvider>
+      <InternetIdentityProvider>
+        <App />
+      </InternetIdentityProvider>
+    </EmailAuthProvider>
   </QueryClientProvider>,
 );

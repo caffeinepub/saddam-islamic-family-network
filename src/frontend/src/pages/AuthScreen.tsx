@@ -6,7 +6,9 @@ import { Camera, Eye, EyeOff, Loader2, Star, User } from "lucide-react";
 import { motion } from "motion/react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { useInternetIdentity } from "../hooks/useInternetIdentity";
+import { createActorWithConfig } from "../config";
+import { deriveIdentity, useEmailAuth } from "../hooks/useEmailAuth";
+import { getSecretParameter } from "../utils/urlParams";
 
 const RELATIONS = [
   "Father",
@@ -15,12 +17,18 @@ const RELATIONS = [
   "Sister",
   "Son",
   "Daughter",
+  "Aunty",
+  "Uncle",
+  "Cousin",
   "Custom",
 ];
 
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
 export default function AuthScreen() {
-  const { login, isLoggingIn, isLoginError, loginError } =
-    useInternetIdentity();
+  const { login, isLoggingIn } = useEmailAuth();
   const [tab, setTab] = useState<"signin" | "signup">("signin");
 
   // Sign In fields
@@ -30,7 +38,6 @@ export default function AuthScreen() {
 
   // Sign Up fields
   const [suPhoto, setSuPhoto] = useState<string | null>(null);
-  const [suPhotoFile, setSuPhotoFile] = useState<File | null>(null);
   const [suName, setSuName] = useState("");
   const [suEmail, setSuEmail] = useState("");
   const [suPassword, setSuPassword] = useState("");
@@ -40,19 +47,21 @@ export default function AuthScreen() {
   const [suAge, setSuAge] = useState("");
   const [suShowPass, setSuShowPass] = useState(false);
   const [suShowConfirm, setSuShowConfirm] = useState(false);
+  const [isSigningUp, setIsSigningUp] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isBusy = isLoggingIn || isSigningUp;
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setSuPhotoFile(file);
     const reader = new FileReader();
     reader.onload = (ev) => setSuPhoto(ev.target?.result as string);
     reader.readAsDataURL(file);
   };
 
-  const handleSignIn = () => {
+  const handleSignIn = async () => {
     if (!siEmail.trim()) {
       toast.error("Please enter your email");
       return;
@@ -61,24 +70,30 @@ export default function AuthScreen() {
       toast.error("Please enter your password");
       return;
     }
-    try {
-      login();
-    } catch {
-      toast.error("Login failed. Please try again.");
+    const ok = await login(siEmail.trim(), siPassword);
+    if (!ok) {
+      toast.error("Sign in failed. Please check your email and password.");
     }
   };
 
-  const handleSignUp = () => {
+  const handleSignUp = async () => {
+    console.log("[SignUp] Create Account button clicked");
+
+    // Validation
     if (!suName.trim()) {
       toast.error("Please enter your full name");
       return;
     }
-    if (!suEmail.trim()) {
-      toast.error("Please enter your email");
+    if (!suEmail.trim() || !isValidEmail(suEmail)) {
+      toast.error("Please enter a valid email address");
       return;
     }
     if (!suPassword) {
       toast.error("Please enter a password");
+      return;
+    }
+    if (suPassword.length < 6) {
+      toast.error("Password must be at least 6 characters");
       return;
     }
     if (suPassword !== suConfirm) {
@@ -99,30 +114,68 @@ export default function AuthScreen() {
       toast.error("Please enter a valid age");
       return;
     }
-    // Store signup data so App.tsx can auto-save profile after auth
-    const signupData = {
-      username: suName.trim(),
-      email: suEmail.trim(),
-      relation,
-      age: suAge,
-      photoDataUrl: suPhoto ?? null,
-    };
-    localStorage.setItem("pendingSignupData", JSON.stringify(signupData));
-    if (suPhotoFile) {
-      // Store photo as base64 for later upload
-      localStorage.setItem("pendingSignupPhoto", suPhoto ?? "");
-    }
+
+    console.log("[SignUp] Validation passed, saving to backend...");
+    setIsSigningUp(true);
+
     try {
-      login();
-    } catch {
-      toast.error("Account creation failed. Please try again.");
+      // Derive identity from email+password
+      const id = await deriveIdentity(suEmail.trim(), suPassword);
+      console.log("[SignUp] Identity derived:", id.getPrincipal().toString());
+
+      // Create actor with this identity
+      const actor = await createActorWithConfig({
+        agentOptions: { identity: id },
+      });
+      const adminToken = getSecretParameter("caffeineAdminToken") || "";
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (actor as any)._initializeAccessControlWithSecret(adminToken);
+      console.log("[SignUp] Actor created");
+
+      // Save email
+      await actor.saveCallerEmail(suEmail.trim());
+      console.log("[SignUp] Email saved");
+
+      // Save profile (backend sets status=pending for new users)
+      const bio = `Relation: ${relation} | Age: ${suAge}`;
+      await actor.saveCallerUserProfile({
+        username: suName.trim(),
+        bio,
+        profilePhotoId: undefined,
+        coverPhotoId: undefined,
+      });
+      console.log("[SignUp] Profile saved");
+
+      toast.success("Account created! Waiting for admin approval.", {
+        duration: 5000,
+      });
+
+      // Reset form
+      setSuPhoto(null);
+      setSuName("");
+      setSuEmail("");
+      setSuPassword("");
+      setSuConfirm("");
+      setSuRelation("");
+      setSuCustomRelation("");
+      setSuAge("");
+
+      // Switch to sign in tab with email pre-filled
+      setTab("signin");
+      setSiEmail(suEmail.trim());
+    } catch (err) {
+      console.error("[SignUp] Error:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`Account creation failed: ${msg}`);
+    } finally {
+      setIsSigningUp(false);
     }
   };
 
   const handleForgotPassword = () => {
     toast.info(
-      "Password recovery: Please use Internet Identity to manage your account security.",
-      { duration: 4000 },
+      "Password recovery is not available. Please contact the family admin if you forgot your password.",
+      { duration: 5000 },
     );
   };
 
@@ -202,6 +255,7 @@ export default function AuthScreen() {
                   placeholder="Enter your email"
                   value={siEmail}
                   onChange={(e) => setSiEmail(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSignIn()}
                   className="h-11 rounded-xl border-green-800/50 bg-white/5 text-white placeholder:text-white/30 focus-visible:ring-green-500"
                 />
               </div>
@@ -217,6 +271,7 @@ export default function AuthScreen() {
                     placeholder="Enter your password"
                     value={siPassword}
                     onChange={(e) => setSiPassword(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleSignIn()}
                     className="h-11 rounded-xl border-green-800/50 bg-white/5 text-white placeholder:text-white/30 focus-visible:ring-green-500 pr-10"
                   />
                   <button
@@ -244,19 +299,10 @@ export default function AuthScreen() {
                 </button>
               </div>
 
-              {isLoginError && loginError && (
-                <div
-                  data-ocid="auth.login_error_state"
-                  className="bg-red-900/30 border border-red-500/30 rounded-xl p-3"
-                >
-                  <p className="text-red-400 text-xs">{loginError.message}</p>
-                </div>
-              )}
-
               <Button
                 data-ocid="auth.signin_submit_button"
                 onClick={handleSignIn}
-                disabled={isLoggingIn}
+                disabled={isBusy}
                 className="w-full h-11 rounded-xl font-bold text-base gap-2"
                 style={{
                   background: "linear-gradient(135deg, #16a34a, #15803d)",
@@ -353,7 +399,7 @@ export default function AuthScreen() {
                   <Input
                     data-ocid="auth.signup_password_input"
                     type={suShowPass ? "text" : "password"}
-                    placeholder="Create a password"
+                    placeholder="Create a password (min 6 chars)"
                     value={suPassword}
                     onChange={(e) => setSuPassword(e.target.value)}
                     className="h-10 rounded-xl border-green-800/50 bg-white/5 text-white placeholder:text-white/30 focus-visible:ring-green-500 pr-10"
@@ -399,7 +445,12 @@ export default function AuthScreen() {
                   </button>
                 </div>
                 {suConfirm && suPassword !== suConfirm && (
-                  <p className="text-red-400 text-xs">Passwords do not match</p>
+                  <p
+                    className="text-red-400 text-xs"
+                    data-ocid="auth.signup_confirm_password_error"
+                  >
+                    Passwords do not match
+                  </p>
                 )}
               </div>
 
@@ -459,26 +510,17 @@ export default function AuthScreen() {
                 />
               </div>
 
-              {isLoginError && loginError && (
-                <div
-                  data-ocid="auth.signup_error_state"
-                  className="bg-red-900/30 border border-red-500/30 rounded-xl p-3"
-                >
-                  <p className="text-red-400 text-xs">{loginError.message}</p>
-                </div>
-              )}
-
               <Button
                 data-ocid="auth.signup_submit_button"
                 onClick={handleSignUp}
-                disabled={isLoggingIn}
+                disabled={isBusy}
                 className="w-full h-11 rounded-xl font-bold text-base gap-2 mt-1"
                 style={{
                   background: "linear-gradient(135deg, #16a34a, #15803d)",
                   color: "white",
                 }}
               >
-                {isLoggingIn ? (
+                {isSigningUp ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" /> Creating
                     Account...

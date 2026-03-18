@@ -6,7 +6,7 @@ import { Clock, Heart, MessageCircle, Reply, Send } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import type { CommentView, PostView } from "../backend.d";
-import { useInternetIdentity } from "../hooks/useInternetIdentity";
+import { useEmailAuth } from "../hooks/useEmailAuth";
 import {
   useAddComment,
   useGetUserProfile,
@@ -94,7 +94,7 @@ function CommentItem({
   const [showReplyInput, setShowReplyInput] = useState(false);
   const [replyText, setReplyText] = useState("");
   const replyMutation = useReplyToComment();
-  const { identity } = useInternetIdentity();
+  const { identity } = useEmailAuth();
 
   const handleReply = async () => {
     if (!identity) {
@@ -188,7 +188,7 @@ interface PostCardProps {
 }
 
 export default function PostCard({ post, ocidIndex }: PostCardProps) {
-  const { identity } = useInternetIdentity();
+  const { identity } = useEmailAuth();
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState("");
   const likeMutation = useLikePost();
