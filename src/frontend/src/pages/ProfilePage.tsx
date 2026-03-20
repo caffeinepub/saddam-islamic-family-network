@@ -11,9 +11,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { Camera, Edit2, Loader2, User } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  Camera,
+  ChevronRight,
+  Edit2,
+  LayoutDashboard,
+  Loader2,
+  LogOut,
+  Settings,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import type { Page } from "../App";
 import { ExternalBlob } from "../backend";
 import PostCard from "../components/PostCard";
 import { MobileHeader } from "../components/TopNav";
@@ -33,8 +43,17 @@ function getInitials(name: string): string {
     .slice(0, 2);
 }
 
-export default function ProfilePage() {
-  const { identity } = useEmailAuth();
+interface ProfilePageProps {
+  setCurrentPage: (page: Page) => void;
+  isAnyAdmin: boolean;
+}
+
+export default function ProfilePage({
+  setCurrentPage,
+  isAnyAdmin,
+}: ProfilePageProps) {
+  const { identity, clear } = useEmailAuth();
+  const queryClient = useQueryClient();
   const { data: profile, isLoading: profileLoading } =
     useGetCallerUserProfile();
   const [page] = useState(0);
@@ -44,6 +63,7 @@ export default function ProfilePage() {
   );
 
   const [editOpen, setEditOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [editUsername, setEditUsername] = useState("");
   const [editBio, setEditBio] = useState("");
   const [profilePhotoFile, setProfilePhotoFile] = useState<File | null>(null);
@@ -173,6 +193,11 @@ export default function ProfilePage() {
     }
   };
 
+  const handleLogout = () => {
+    clear();
+    queryClient.clear();
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <MobileHeader />
@@ -244,14 +269,82 @@ export default function ProfilePage() {
                   {profile.bio}
                 </p>
               )}
-              <div className="flex items-center gap-2 mt-2">
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <User className="w-3 h-3" />
-                  {identity?.getPrincipal().toString().slice(0, 16)}…
-                </span>
-              </div>
             </div>
           )}
+        </div>
+
+        {/* Quick Actions Menu */}
+        <div className="px-4 mb-6">
+          <div className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm">
+            <div className="px-4 py-2 border-b border-border">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Account Options
+              </span>
+            </div>
+
+            {/* Admin Dashboard - only for admins */}
+            {isAnyAdmin && (
+              <button
+                type="button"
+                data-ocid="profile.admin_dashboard_button"
+                onClick={() => setCurrentPage("admin-dashboard")}
+                className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-islamic-green/10 transition-colors border-b border-border"
+              >
+                <div className="w-9 h-9 rounded-full bg-islamic-green/20 flex items-center justify-center shrink-0">
+                  <LayoutDashboard className="w-5 h-5 text-islamic-green" />
+                </div>
+                <div className="flex-1 text-left">
+                  <p className="text-sm font-semibold text-foreground">
+                    Admin Dashboard
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Manage family members & requests
+                  </p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              </button>
+            )}
+
+            {/* App Settings */}
+            <button
+              type="button"
+              data-ocid="profile.settings_button"
+              onClick={() => setSettingsOpen(true)}
+              className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted/50 transition-colors border-b border-border"
+            >
+              <div className="w-9 h-9 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0">
+                <Settings className="w-5 h-5 text-blue-500" />
+              </div>
+              <div className="flex-1 text-left">
+                <p className="text-sm font-semibold text-foreground">
+                  App Settings
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Theme, notifications & more
+                </p>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            </button>
+
+            {/* Logout */}
+            <button
+              type="button"
+              data-ocid="profile.logout_button"
+              onClick={handleLogout}
+              className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-red-500/10 transition-colors"
+            >
+              <div className="w-9 h-9 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
+                <LogOut className="w-5 h-5 text-red-500" />
+              </div>
+              <div className="flex-1 text-left">
+                <p className="text-sm font-semibold text-red-500">Logout</p>
+                <p className="text-xs text-muted-foreground">
+                  Sign out of your account
+                </p>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            </button>
+          </div>
         </div>
 
         <div className="px-4 mb-4">
@@ -305,6 +398,7 @@ export default function ProfilePage() {
         </div>
       </div>
 
+      {/* Edit Profile Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent
           data-ocid="profile.edit_dialog"
@@ -478,6 +572,48 @@ export default function ProfilePage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* App Settings Dialog */}
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="bg-card border-border max-w-md mx-4 rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-display font-bold text-foreground">
+              App Settings
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="bg-muted/50 rounded-xl p-4 text-sm text-muted-foreground">
+              <p className="font-semibold text-foreground mb-1">Theme</p>
+              <p>
+                Use the moon/sun icon in the top bar to switch between Default,
+                Islamic, and Dark themes.
+              </p>
+            </div>
+            <div className="bg-muted/50 rounded-xl p-4 text-sm text-muted-foreground">
+              <p className="font-semibold text-foreground mb-1">Privacy</p>
+              <p>
+                Your posts and messages are automatically deleted after 30 days
+                for privacy.
+              </p>
+            </div>
+            <div className="bg-muted/50 rounded-xl p-4 text-sm text-muted-foreground">
+              <p className="font-semibold text-foreground mb-1">About SIFN</p>
+              <p>
+                Saddam Islamic Family Network v1.0 - A private space for family
+                to connect in faith.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => setSettingsOpen(false)}
+              className="bg-islamic-green text-white rounded-xl"
+            >
+              Close
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

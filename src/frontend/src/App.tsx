@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import type { Principal } from "@icp-sdk/core/principal";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { Component, type ReactNode, useEffect, useState } from "react";
 import BottomNav from "./components/BottomNav";
 import ProfileSetupModal from "./components/ProfileSetupModal";
 import { MobileHeader } from "./components/TopNav";
@@ -20,13 +20,86 @@ import SuperAdminDashboard from "./pages/SuperAdminDashboard";
 
 const SUPER_ADMIN_EMAIL = "mdsaddamislamic@gmail.com";
 
-export type Page = "feed" | "profile" | "members" | "member-profile" | "chat";
+export type Page =
+  | "feed"
+  | "profile"
+  | "members"
+  | "member-profile"
+  | "chat"
+  | "admin-dashboard";
 
 // Helper: extract value from Motoko optional (?T => [] | [T] in JS)
 function fromOptional<T>(opt: [] | [T] | T | null | undefined): T | null {
   if (opt === null || opt === undefined) return null;
   if (Array.isArray(opt)) return opt.length > 0 ? (opt[0] as T) : null;
   return opt as T;
+}
+
+// Page-level Error Boundary
+class PageErrorBoundary extends Component<
+  { children: ReactNode; pageName?: string },
+  { hasError: boolean }
+> {
+  constructor(props: { children: ReactNode; pageName?: string }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error(
+      `[PageErrorBoundary] ${this.props.pageName ?? "page"} crashed:`,
+      error,
+    );
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
+          <div className="text-4xl mb-4">⚠️</div>
+          <h3 className="text-white font-bold text-lg mb-2">
+            Something went wrong
+          </h3>
+          <p className="text-white/50 text-sm mb-4">
+            This page couldn't load. Please try refreshing.
+          </p>
+          <button
+            type="button"
+            onClick={() => this.setState({ hasError: false })}
+            className="px-4 py-2 rounded-xl text-sm font-semibold"
+            style={{
+              background: "linear-gradient(135deg, #16a34a, #15803d)",
+              color: "white",
+            }}
+          >
+            Try Again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// Spinner
+function Spinner({ label = "Loading…" }: { label?: string }) {
+  return (
+    <div
+      className="min-h-screen flex items-center justify-center"
+      style={{
+        background: "linear-gradient(135deg, #0a2e1a 0%, #1a4a2e 100%)",
+      }}
+    >
+      <div className="flex flex-col items-center gap-4">
+        <div className="w-12 h-12 rounded-full border-4 border-green-500 border-t-transparent animate-spin" />
+        <p className="text-green-400 font-semibold text-sm">{label}</p>
+      </div>
+    </div>
+  );
 }
 
 function AppInner() {
@@ -40,6 +113,7 @@ function AppInner() {
     data: userProfile,
     isLoading: profileLoading,
     isFetched,
+    isError: profileError,
   } = useGetCallerUserProfile();
 
   // Check user status from backend
@@ -47,7 +121,11 @@ function AppInner() {
     queryKey: ["callerStatus"],
     queryFn: async () => {
       if (!actor) return null;
-      return actor.getCallerStatus();
+      try {
+        return await actor.getCallerStatus();
+      } catch {
+        return null;
+      }
     },
     enabled:
       !!actor &&
@@ -56,16 +134,22 @@ function AppInner() {
       isFetched &&
       userProfile !== null,
     staleTime: 30_000,
+    retry: 1,
   });
 
   const { data: callerEmailRaw } = useQuery({
     queryKey: ["callerEmail"],
     queryFn: async () => {
       if (!actor) return null;
-      return actor.getCallerEmail();
+      try {
+        return await actor.getCallerEmail();
+      } catch {
+        return null;
+      }
     },
     enabled: !!actor && !actorFetching && isAuthenticated && isFetched,
     staleTime: 60_000,
+    retry: 1,
   });
 
   // Use isSuperAdmin() backend method as the authoritative check
@@ -73,10 +157,31 @@ function AppInner() {
     queryKey: ["isSuperAdmin"],
     queryFn: async () => {
       if (!actor) return false;
-      return actor.isSuperAdmin();
+      try {
+        return await actor.isSuperAdmin();
+      } catch {
+        return false;
+      }
     },
     enabled: !!actor && !actorFetching && isAuthenticated,
     staleTime: 60_000,
+    retry: 1,
+  });
+
+  // Check if helper admin
+  const { data: callerAdminRole } = useQuery({
+    queryKey: ["callerAdminRole"],
+    queryFn: async () => {
+      if (!actor) return null;
+      try {
+        return await actor.getCallerAdminRole();
+      } catch {
+        return null;
+      }
+    },
+    enabled: !!actor && !actorFetching && isAuthenticated && isFetched,
+    staleTime: 60_000,
+    retry: 1,
   });
 
   // Extract email: prefer local auth email, fallback to backend
@@ -87,45 +192,49 @@ function AppInner() {
     isSuperAdminBackend === true ||
     callerEmail?.toLowerCase() === SUPER_ADMIN_EMAIL;
 
+  // Helper admin detection
+  const isHelperAdmin =
+    callerAdminRole !== null &&
+    callerAdminRole !== undefined &&
+    "helperAdmin" in (callerAdminRole as object);
+
+  // Any admin (super or helper)
+  const isAnyAdmin = isSuperAdmin || isHelperAdmin;
+
   const showProfileSetup =
-    isAuthenticated && !profileLoading && isFetched && userProfile === null;
+    isAuthenticated &&
+    !profileLoading &&
+    isFetched &&
+    userProfile === null &&
+    !profileError;
 
   useEffect(() => {
     if (!actor || actorFetching) return;
     actor.startAutoDeleteTimer().catch(() => {});
   }, [actor, actorFetching]);
 
+  // Initializing
   if (isInitializing) {
-    return (
-      <div className="min-h-screen flex items-center justify-center pattern-overlay">
-        <div className="bg-islamic-surface/90 backdrop-blur-md rounded-2xl p-8 flex flex-col items-center gap-4 shadow-xl">
-          <div className="w-12 h-12 rounded-full border-4 border-islamic-green border-t-transparent animate-spin" />
-          <p className="text-islamic-green font-semibold text-sm">Loading…</p>
-        </div>
-      </div>
-    );
+    return <Spinner label="Loading app…" />;
   }
 
+  // Not logged in
   if (!isAuthenticated) {
     return (
-      <>
+      <PageErrorBoundary pageName="AuthScreen">
         <AuthScreen />
         <Toaster position="top-center" />
-      </>
+      </PageErrorBoundary>
     );
   }
 
-  // Super Admin: show dedicated dashboard (skip pending screen entirely)
-  if (isSuperAdmin && userProfile !== null && !profileLoading) {
-    return (
-      <>
-        <Toaster position="top-center" />
-        <SuperAdminDashboard />
-      </>
-    );
+  // Profile loading (only block briefly, not forever)
+  if (profileLoading && !isFetched) {
+    return <Spinner label="Loading profile…" />;
   }
 
   // Status checks for normal users only (only after profile loaded)
+  // Super admin bypasses all status checks
   if (
     !isSuperAdmin &&
     !profileLoading &&
@@ -186,7 +295,7 @@ function AppInner() {
             <h2 className="text-white font-bold text-lg mb-2">
               Account Not Approved
             </h2>
-            <p className="text-white/60 text-sm leading-relaxed">
+            <p className="text-white/60 text-sm">
               आपका account approve नहीं हुआ है, कृपया फिर से request करें।
             </p>
           </div>
@@ -215,7 +324,7 @@ function AppInner() {
             <h2 className="text-white font-bold text-lg mb-2">
               Pending Approval
             </h2>
-            <p className="text-white/60 text-sm leading-relaxed">
+            <p className="text-white/60 text-sm">
               آپ کی request Super Admin کے پاس بھیج دی گئی ہے۔
             </p>
             <p className="text-white/50 text-xs mt-2">
@@ -231,27 +340,59 @@ function AppInner() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <Toaster position="top-center" />
-      <MobileHeader currentPage={currentPage} setCurrentPage={setCurrentPage} />
-      <TopNav currentPage={currentPage} setCurrentPage={setCurrentPage} />
+      <MobileHeader
+        currentPage={currentPage}
+        setCurrentPage={setCurrentPage}
+        isAnyAdmin={isAnyAdmin}
+      />
+      <TopNav
+        currentPage={currentPage}
+        setCurrentPage={setCurrentPage}
+        isAnyAdmin={isAnyAdmin}
+      />
 
       <main className="flex-1 pt-16 pb-20 md:pb-4">
-        {currentPage === "feed" && <FeedPage />}
-        {currentPage === "profile" && <ProfilePage />}
+        {currentPage === "feed" && (
+          <PageErrorBoundary pageName="FeedPage">
+            <FeedPage />
+          </PageErrorBoundary>
+        )}
+        {currentPage === "profile" && (
+          <PageErrorBoundary pageName="ProfilePage">
+            <ProfilePage
+              setCurrentPage={setCurrentPage}
+              isAnyAdmin={isAnyAdmin}
+            />
+          </PageErrorBoundary>
+        )}
+        {currentPage === "admin-dashboard" && (
+          <PageErrorBoundary pageName="AdminDashboard">
+            <SuperAdminDashboard onBack={() => setCurrentPage("profile")} />
+          </PageErrorBoundary>
+        )}
         {currentPage === "members" && (
-          <MembersPage
-            onSelectMember={(p) => {
-              setSelectedMember(p);
-              setCurrentPage("member-profile");
-            }}
-          />
+          <PageErrorBoundary pageName="MembersPage">
+            <MembersPage
+              onSelectMember={(p) => {
+                setSelectedMember(p);
+                setCurrentPage("member-profile");
+              }}
+            />
+          </PageErrorBoundary>
         )}
         {currentPage === "member-profile" && selectedMember && (
-          <MemberProfilePage
-            principal={selectedMember}
-            onBack={() => setCurrentPage("members")}
-          />
+          <PageErrorBoundary pageName="MemberProfilePage">
+            <MemberProfilePage
+              principal={selectedMember}
+              onBack={() => setCurrentPage("members")}
+            />
+          </PageErrorBoundary>
         )}
-        {currentPage === "chat" && <ChatPage />}
+        {currentPage === "chat" && (
+          <PageErrorBoundary pageName="ChatPage">
+            <ChatPage />
+          </PageErrorBoundary>
+        )}
       </main>
 
       <BottomNav currentPage={currentPage} setCurrentPage={setCurrentPage} />

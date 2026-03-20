@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { Principal } from "@icp-sdk/core/principal";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowLeft,
   CheckCircle,
   Crown,
   MoreVertical,
@@ -77,7 +78,13 @@ function formatDate(ts: bigint): string {
   });
 }
 
-export default function SuperAdminDashboard() {
+interface SuperAdminDashboardProps {
+  onBack?: () => void;
+}
+
+export default function SuperAdminDashboard({
+  onBack,
+}: SuperAdminDashboardProps) {
   const { actor } = useActor();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -210,8 +217,20 @@ export default function SuperAdminDashboard() {
         }}
       >
         <div className="flex items-center gap-2">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="text-white/60 hover:text-white transition-colors mr-1"
+              title="Back to Profile"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
           <Crown className="w-5 h-5 text-amber-400" />
-          <span className="text-white font-bold text-base">Super Admin</span>
+          <span className="text-white font-bold text-base">
+            Admin Dashboard
+          </span>
           <span className="text-white/40 text-xs hidden sm:block">
             — SIFN Dashboard
           </span>

@@ -6,6 +6,7 @@ import { Camera, Eye, EyeOff, Loader2, Star, User } from "lucide-react";
 import { motion } from "motion/react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
+import { ExternalBlob } from "../backend";
 import { createActorWithConfig } from "../config";
 import { deriveIdentity, useEmailAuth } from "../hooks/useEmailAuth";
 import { getSecretParameter } from "../utils/urlParams";
@@ -38,6 +39,7 @@ export default function AuthScreen() {
 
   // Sign Up fields
   const [suPhoto, setSuPhoto] = useState<string | null>(null);
+  const [suPhotoFile, setSuPhotoFile] = useState<File | null>(null);
   const [suName, setSuName] = useState("");
   const [suEmail, setSuEmail] = useState("");
   const [suPassword, setSuPassword] = useState("");
@@ -56,6 +58,7 @@ export default function AuthScreen() {
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setSuPhotoFile(file);
     const reader = new FileReader();
     reader.onload = (ev) => setSuPhoto(ev.target?.result as string);
     reader.readAsDataURL(file);
@@ -78,6 +81,12 @@ export default function AuthScreen() {
 
   const handleSignUp = async () => {
     console.log("[SignUp] Create Account button clicked");
+
+    // Photo is REQUIRED
+    if (!suPhoto || !suPhotoFile) {
+      toast.error("Please upload profile photo");
+      return;
+    }
 
     // Validation
     if (!suName.trim()) {
@@ -136,15 +145,26 @@ export default function AuthScreen() {
       await actor.saveCallerEmail(suEmail.trim());
       console.log("[SignUp] Email saved");
 
+      // Convert photo file to ExternalBlob
+      let profilePhotoId: ExternalBlob | undefined = undefined;
+      try {
+        const bytes = new Uint8Array(await suPhotoFile.arrayBuffer());
+        profilePhotoId = ExternalBlob.fromBytes(bytes);
+        console.log("[SignUp] Photo prepared for upload");
+      } catch (photoErr) {
+        console.warn("[SignUp] Photo upload prep failed:", photoErr);
+        // Continue without photo if upload fails
+      }
+
       // Save profile (backend sets status=pending for new users)
       const bio = `Relation: ${relation} | Age: ${suAge}`;
       await actor.saveCallerUserProfile({
         username: suName.trim(),
         bio,
-        profilePhotoId: undefined,
+        profilePhotoId,
         coverPhotoId: undefined,
       });
-      console.log("[SignUp] Profile saved");
+      console.log("[SignUp] Profile saved with photo");
 
       toast.success("Account created! Waiting for admin approval.", {
         duration: 5000,
@@ -152,6 +172,7 @@ export default function AuthScreen() {
 
       // Reset form
       setSuPhoto(null);
+      setSuPhotoFile(null);
       setSuName("");
       setSuEmail("");
       setSuPassword("");
@@ -324,13 +345,17 @@ export default function AuthScreen() {
 
             {/* SIGN UP */}
             <TabsContent value="signup" className="space-y-3">
-              {/* Profile Photo */}
+              {/* Profile Photo - REQUIRED */}
               <div className="flex flex-col items-center gap-2">
                 <button
                   type="button"
                   data-ocid="auth.photo_upload_button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-20 h-20 rounded-full flex items-center justify-center overflow-hidden border-2 border-dashed border-green-500/50 hover:border-green-400 transition-colors"
+                  className={`w-20 h-20 rounded-full flex items-center justify-center overflow-hidden border-2 border-dashed transition-colors ${
+                    suPhoto
+                      ? "border-green-500"
+                      : "border-red-400/70 hover:border-green-400"
+                  }`}
                   style={{ background: "rgba(255,255,255,0.06)" }}
                 >
                   {suPhoto ? (
@@ -341,8 +366,8 @@ export default function AuthScreen() {
                     />
                   ) : (
                     <div className="flex flex-col items-center gap-1">
-                      <Camera className="w-6 h-6 text-green-400" />
-                      <span className="text-xs text-white/40">Photo</span>
+                      <Camera className="w-6 h-6 text-red-400" />
+                      <span className="text-xs text-red-300">Required</span>
                     </div>
                   )}
                 </button>
@@ -354,10 +379,12 @@ export default function AuthScreen() {
                   className="hidden"
                   onChange={handlePhotoChange}
                 />
-                {!suPhoto && (
-                  <p className="text-white/40 text-xs">
-                    Tap to upload profile photo
+                {!suPhoto ? (
+                  <p className="text-red-400 text-xs font-medium">
+                    * Profile photo is required
                   </p>
+                ) : (
+                  <p className="text-green-400 text-xs">Photo uploaded ✓</p>
                 )}
               </div>
 
@@ -470,13 +497,7 @@ export default function AuthScreen() {
                         suRelation === r
                           ? "bg-green-600 border-green-500 text-white"
                           : "border-green-800/40 text-white/50 hover:border-green-500/60 hover:text-white/80"
-                      }`}
-                      style={{
-                        background:
-                          suRelation === r
-                            ? undefined
-                            : "rgba(255,255,255,0.04)",
-                      }}
+                      } bg-transparent`}
                     >
                       {r}
                     </button>
@@ -485,10 +506,10 @@ export default function AuthScreen() {
                 {suRelation === "Custom" && (
                   <Input
                     data-ocid="auth.signup_custom_relation_input"
-                    placeholder="Type your relation..."
+                    placeholder="Enter your relation"
                     value={suCustomRelation}
                     onChange={(e) => setSuCustomRelation(e.target.value)}
-                    className="mt-2 h-9 rounded-xl border-green-800/50 bg-white/5 text-white placeholder:text-white/30 focus-visible:ring-green-500"
+                    className="h-9 rounded-xl border-green-800/50 bg-white/5 text-white placeholder:text-white/30 focus-visible:ring-green-500 mt-1.5"
                   />
                 )}
               </div>
@@ -503,18 +524,19 @@ export default function AuthScreen() {
                   type="number"
                   placeholder="Enter your age"
                   value={suAge}
+                  onChange={(e) => setSuAge(e.target.value)}
                   min={1}
                   max={120}
-                  onChange={(e) => setSuAge(e.target.value)}
                   className="h-10 rounded-xl border-green-800/50 bg-white/5 text-white placeholder:text-white/30 focus-visible:ring-green-500"
                 />
               </div>
 
               <Button
                 data-ocid="auth.signup_submit_button"
+                type="button"
                 onClick={handleSignUp}
                 disabled={isBusy}
-                className="w-full h-11 rounded-xl font-bold text-base gap-2 mt-1"
+                className="w-full h-11 rounded-xl font-bold text-base gap-2 mt-2"
                 style={{
                   background: "linear-gradient(135deg, #16a34a, #15803d)",
                   color: "white",
@@ -534,19 +556,6 @@ export default function AuthScreen() {
             </TabsContent>
           </Tabs>
         </div>
-
-        {/* Footer */}
-        <p className="text-center text-white/30 text-xs mt-4">
-          © {new Date().getFullYear()}.{" "}
-          <a
-            href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-white/50 transition-colors"
-          >
-            Built with ❤️ using caffeine.ai
-          </a>
-        </p>
       </motion.div>
     </div>
   );

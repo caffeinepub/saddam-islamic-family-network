@@ -1,3 +1,4 @@
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -11,23 +12,35 @@ import {
   Bell,
   Edit,
   Home,
+  LayoutDashboard,
   LogOut,
   Menu,
   MessageCircle,
   Moon,
+  Settings,
   Sun,
-  User,
   Users,
 } from "lucide-react";
 import { useState } from "react";
 import type { Page } from "../App";
 import { type Theme, useTheme } from "../contexts/ThemeContext";
 import { useEmailAuth } from "../hooks/useEmailAuth";
+import { useGetCallerUserProfile } from "../hooks/useQueries";
 import NotificationBell from "./NotificationBell";
+
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
 
 interface TopNavProps {
   currentPage: Page;
   setCurrentPage: (page: Page) => void;
+  isAnyAdmin?: boolean;
 }
 
 const THEME_LABELS: Record<Theme, string> = {
@@ -46,6 +59,15 @@ export default function TopNav({ currentPage, setCurrentPage }: TopNavProps) {
   const { clear, identity } = useEmailAuth();
   const queryClient = useQueryClient();
   const { theme, cycleTheme } = useTheme();
+  const { data: profile } = useGetCallerUserProfile();
+
+  let profilePhotoUrl: string | undefined;
+  try {
+    profilePhotoUrl = profile?.profilePhotoId?.getDirectURL();
+  } catch {
+    profilePhotoUrl = undefined;
+  }
+  const username = profile?.username ?? "";
 
   const handleLogout = async () => {
     clear();
@@ -93,20 +115,6 @@ export default function TopNav({ currentPage, setCurrentPage }: TopNavProps) {
           <Button
             variant="ghost"
             size="sm"
-            data-ocid="nav.profile_link"
-            onClick={() => setCurrentPage("profile")}
-            className={`gap-2 text-sm font-medium transition-colors ${
-              currentPage === "profile"
-                ? "bg-white/15 text-white"
-                : "text-white/70 hover:bg-white/10 hover:text-white"
-            }`}
-          >
-            <User className="w-4 h-4" />
-            <span>Profile</span>
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
             data-ocid="nav.members_link"
             onClick={() => setCurrentPage("members")}
             className={`gap-2 text-sm font-medium transition-colors ${
@@ -148,6 +156,39 @@ export default function TopNav({ currentPage, setCurrentPage }: TopNavProps) {
           </Button>
 
           <div className="w-px h-6 bg-white/20 mx-1" />
+
+          {/* Profile Photo - clickable to open profile page */}
+          <button
+            type="button"
+            data-ocid="nav.profile_photo_button"
+            onClick={() => setCurrentPage("profile")}
+            title="View Profile"
+            className={`flex items-center gap-2 px-2 py-1 rounded-xl transition-colors ${
+              currentPage === "profile" || currentPage === "admin-dashboard"
+                ? "bg-white/15"
+                : "hover:bg-white/10"
+            }`}
+          >
+            <Avatar className="w-7 h-7 border-2 border-islamic-gold/50">
+              {profilePhotoUrl ? (
+                <img
+                  src={profilePhotoUrl}
+                  alt={username}
+                  className="object-cover w-full h-full rounded-full"
+                />
+              ) : (
+                <AvatarFallback className="bg-islamic-green text-white text-xs font-bold">
+                  {getInitials(username) || "?"}
+                </AvatarFallback>
+              )}
+            </Avatar>
+            {username && (
+              <span className="text-white/80 text-xs font-medium max-w-[80px] truncate">
+                {username.split(" ")[0]}
+              </span>
+            )}
+          </button>
+
           <Button
             variant="ghost"
             size="sm"
@@ -168,16 +209,27 @@ export default function TopNav({ currentPage, setCurrentPage }: TopNavProps) {
 interface MobileHeaderProps {
   currentPage?: Page;
   setCurrentPage?: (page: Page) => void;
+  isAnyAdmin?: boolean;
 }
 
 export function MobileHeader({
   currentPage = "feed",
   setCurrentPage,
+  isAnyAdmin,
 }: MobileHeaderProps) {
   const { theme, cycleTheme } = useTheme();
   const { clear } = useEmailAuth();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const { data: profile } = useGetCallerUserProfile();
+
+  let profilePhotoUrl: string | undefined;
+  try {
+    profilePhotoUrl = profile?.profilePhotoId?.getDirectURL();
+  } catch {
+    profilePhotoUrl = undefined;
+  }
+  const username = profile?.username ?? "";
 
   const NEXT_THEME: Record<Theme, string> = {
     default: "Islamic",
@@ -196,12 +248,15 @@ export function MobileHeader({
     setOpen(false);
   };
 
-  const menuItems: {
+  type MenuItem = {
     icon: React.ReactNode;
     label: string;
     page: Page;
     ocid: string;
-  }[] = [
+    adminOnly?: boolean;
+  };
+
+  const menuItems: MenuItem[] = [
     {
       icon: <Home className="w-5 h-5" />,
       label: "Home",
@@ -209,14 +264,28 @@ export function MobileHeader({
       ocid: "mobile_menu.home_link",
     },
     {
-      icon: <User className="w-5 h-5" />,
-      label: "Mera Profile",
+      icon: (
+        <Avatar className="w-5 h-5">
+          {profilePhotoUrl ? (
+            <img
+              src={profilePhotoUrl}
+              alt={username}
+              className="object-cover w-full h-full rounded-full"
+            />
+          ) : (
+            <AvatarFallback className="bg-islamic-green text-white text-xs font-bold">
+              {getInitials(username) || "?"}
+            </AvatarFallback>
+          )}
+        </Avatar>
+      ),
+      label: "My Profile",
       page: "profile",
       ocid: "mobile_menu.profile_link",
     },
     {
       icon: <Edit className="w-5 h-5" />,
-      label: "Profile Edit Karo",
+      label: "Edit Profile",
       page: "profile",
       ocid: "mobile_menu.edit_profile_link",
     },
@@ -236,8 +305,24 @@ export function MobileHeader({
       icon: <Bell className="w-5 h-5" />,
       label: "Notifications",
       page: "feed",
-      ocid: "mobile_menu.home_link",
+      ocid: "mobile_menu.notifications_link",
     },
+    {
+      icon: <Settings className="w-5 h-5" />,
+      label: "Settings",
+      page: "profile",
+      ocid: "mobile_menu.settings_link",
+    },
+    ...(isAnyAdmin
+      ? [
+          {
+            icon: <LayoutDashboard className="w-5 h-5" />,
+            label: "Admin Dashboard",
+            page: "admin-dashboard" as Page,
+            ocid: "mobile_menu.admin_dashboard_link",
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -260,21 +345,35 @@ export function MobileHeader({
           data-ocid="mobile_menu.sheet"
           className="w-72 p-0 border-r border-white/10 bg-islamic-dark flex flex-col"
         >
-          {/* Drawer Header */}
+          {/* Drawer Header with Profile */}
           <SheetHeader className="p-0">
             <div className="bg-gradient-to-b from-islamic-green/30 to-transparent px-5 pt-6 pb-5 border-b border-white/10">
               <div className="flex items-center gap-3 mb-3">
-                <img
-                  src="/assets/generated/sifn-logo-transparent.dim_200x200.png"
-                  alt="SIFN Logo"
-                  className="w-12 h-12 rounded-full object-cover border-2 border-islamic-gold/60 shadow-lg"
-                />
+                <button
+                  type="button"
+                  onClick={() => handleNavigate("profile")}
+                  className="shrink-0"
+                >
+                  <Avatar className="w-12 h-12 border-2 border-islamic-gold/60 shadow-lg">
+                    {profilePhotoUrl ? (
+                      <img
+                        src={profilePhotoUrl}
+                        alt={username}
+                        className="object-cover w-full h-full rounded-full"
+                      />
+                    ) : (
+                      <AvatarFallback className="bg-islamic-green text-white text-lg font-bold">
+                        {getInitials(username) || "?"}
+                      </AvatarFallback>
+                    )}
+                  </Avatar>
+                </button>
                 <div>
                   <SheetTitle className="text-white font-display font-bold text-sm leading-tight text-left">
-                    Saddam Islamic Family Network
+                    {username || "Family Member"}
                   </SheetTitle>
                   <p className="text-islamic-gold text-[11px] font-semibold mt-0.5">
-                    SIFN
+                    SIFN{isAnyAdmin ? " • Admin" : ""}
                   </p>
                 </div>
               </div>
@@ -296,13 +395,19 @@ export function MobileHeader({
                   currentPage === item.page
                     ? "bg-islamic-green/20 text-islamic-gold border-r-2 border-islamic-gold"
                     : "text-white/75 hover:bg-white/8 hover:text-white"
+                } ${
+                  item.page === "admin-dashboard"
+                    ? "text-amber-400/90 hover:text-amber-300"
+                    : ""
                 }`}
               >
                 <span
                   className={
                     currentPage === item.page
                       ? "text-islamic-gold"
-                      : "text-white/50"
+                      : item.page === "admin-dashboard"
+                        ? "text-amber-400"
+                        : "text-white/50"
                   }
                 >
                   {item.icon}
@@ -372,7 +477,29 @@ export function MobileHeader({
         </div>
       </div>
 
-      {/* Theme switcher on right */}
+      {/* Profile photo on right side - clickable */}
+      <button
+        type="button"
+        onClick={() => setCurrentPage?.("profile")}
+        className="ml-2 shrink-0"
+        title="View Profile"
+      >
+        <Avatar className="w-8 h-8 border-2 border-islamic-gold/50">
+          {profilePhotoUrl ? (
+            <img
+              src={profilePhotoUrl}
+              alt={username}
+              className="object-cover w-full h-full rounded-full"
+            />
+          ) : (
+            <AvatarFallback className="bg-islamic-green text-white text-xs font-bold">
+              {getInitials(username) || "?"}
+            </AvatarFallback>
+          )}
+        </Avatar>
+      </button>
+
+      {/* Theme switcher */}
       <button
         type="button"
         onClick={cycleTheme}

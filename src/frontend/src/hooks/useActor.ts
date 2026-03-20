@@ -9,12 +9,11 @@ const ACTOR_QUERY_KEY = "actor";
 export function useActor() {
   const { identity } = useEmailAuth();
   const queryClient = useQueryClient();
-  const actorQuery = useQuery<backendInterface>({
-    queryKey: [ACTOR_QUERY_KEY, identity?.getPrincipal().toString()],
-    queryFn: async () => {
-      const isAuthenticated = !!identity;
 
-      if (!isAuthenticated) {
+  const actorQuery = useQuery<backendInterface>({
+    queryKey: [ACTOR_QUERY_KEY, identity?.getPrincipal().toString() ?? "anon"],
+    queryFn: async () => {
+      if (!identity) {
         // Return anonymous actor if not authenticated
         return await createActorWithConfig();
       }
@@ -27,14 +26,12 @@ export function useActor() {
 
       const actor = await createActorWithConfig(actorOptions);
       const adminToken = getSecretParameter("caffeineAdminToken") || "";
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (actor as any)._initializeAccessControlWithSecret(adminToken);
+      await actor._initializeAccessControlWithSecret(adminToken);
       return actor;
     },
-    // Only refetch when identity changes
     staleTime: Number.POSITIVE_INFINITY,
-    // This will cause the actor to be recreated when the identity changes
     enabled: true,
+    retry: 2,
   });
 
   // When the actor changes, invalidate dependent queries
