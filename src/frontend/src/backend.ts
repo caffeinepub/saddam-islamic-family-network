@@ -203,6 +203,9 @@ export interface backendInterface {
     setHelperAdmin(user: Principal, isHelper: boolean): Promise<void>;
     startAutoDeleteTimer(): Promise<void>;
     unlikePost(postId: PostId): Promise<void>;
+    emailExists(email: string): Promise<boolean>;
+    resetPasswordForEmail(email: string): Promise<void>;
+    cleanupIncompleteUsers(): Promise<bigint>;
     updateUserStatus(user: Principal, status: UserStatus): Promise<void>;
 }
 import type { ChatMessageId as _ChatMessageId, ChatMessageView as _ChatMessageView, CommentId as _CommentId, CommentView as _CommentView, ExternalBlob as _ExternalBlob, NotificationId as _NotificationId, NotificationType as _NotificationType, NotificationView as _NotificationView, PostId as _PostId, PostView as _PostView, Time as _Time, UserProfile as _UserProfile, UserRole as _UserRole, _CaffeineStorageRefillInformation as __CaffeineStorageRefillInformation, _CaffeineStorageRefillResult as __CaffeineStorageRefillResult, AdminUserView as _AdminUserView, UserStatus as _UserStatus, UserAdminRole as _UserAdminRole } from "./declarations/backend.did.d.ts";
@@ -737,6 +740,48 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.unlikePost(arg0);
+            return result;
+        }
+    }
+    async cleanupIncompleteUsers(): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.cleanupIncompleteUsers();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.cleanupIncompleteUsers();
+            return result;
+        }
+    }
+    async emailExists(arg0: string): Promise<boolean> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.emailExists(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.emailExists(arg0);
+            return result;
+        }
+    }
+    async resetPasswordForEmail(arg0: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.resetPasswordForEmail(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.resetPasswordForEmail(arg0);
             return result;
         }
     }

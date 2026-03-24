@@ -81,8 +81,10 @@ export enum UserRole {
 export interface backendInterface {
     addComment(postId: PostId, content: string): Promise<void>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
+    cleanupIncompleteUsers(): Promise<bigint>;
     createPost(content: string, imageBlobId: ExternalBlob | null): Promise<void>;
     deleteExpiredPosts(): Promise<void>;
+    emailExists(email: string): Promise<boolean>;
     getAllUsers(): Promise<Array<Principal>>;
     getAllUsersAdminView(): Promise<Array<AdminUserView>>;
     getCallerAdminRole(): Promise<UserAdminRole>;
@@ -103,6 +105,7 @@ export interface backendInterface {
     markAllNotificationsRead(): Promise<void>;
     markNotificationRead(notifId: NotificationId): Promise<void>;
     replyToComment(postId: PostId, commentId: CommentId, content: string): Promise<void>;
+    resetPasswordForEmail(email: string): Promise<void>;
     saveCallerEmail(email: string): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
     sendGroupMessage(content: string): Promise<void>;

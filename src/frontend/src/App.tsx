@@ -28,14 +28,12 @@ export type Page =
   | "chat"
   | "admin-dashboard";
 
-// Helper: extract value from Motoko optional (?T => [] | [T] in JS)
 function fromOptional<T>(opt: [] | [T] | T | null | undefined): T | null {
   if (opt === null || opt === undefined) return null;
   if (Array.isArray(opt)) return opt.length > 0 ? (opt[0] as T) : null;
   return opt as T;
 }
 
-// Page-level Error Boundary
 class PageErrorBoundary extends Component<
   { children: ReactNode; pageName?: string },
   { hasError: boolean }
@@ -85,7 +83,6 @@ class PageErrorBoundary extends Component<
   }
 }
 
-// Spinner
 function Spinner({ label = "Loading…" }: { label?: string }) {
   return (
     <div
@@ -103,9 +100,10 @@ function Spinner({ label = "Loading…" }: { label?: string }) {
 }
 
 function AppInner() {
-  const { identity, email: authEmail, isInitializing } = useEmailAuth();
+  const { identity, email: authEmail, isInitializing, clear } = useEmailAuth();
   const [currentPage, setCurrentPage] = useState<Page>("feed");
   const [selectedMember, setSelectedMember] = useState<Principal | null>(null);
+  const [signupAfterReject, setSignupAfterReject] = useState(false);
   const isAuthenticated = !!identity;
   const { actor, isFetching: actorFetching } = useActor();
 
@@ -116,7 +114,6 @@ function AppInner() {
     isError: profileError,
   } = useGetCallerUserProfile();
 
-  // Check user status from backend
   const { data: userStatus } = useQuery({
     queryKey: ["callerStatus"],
     queryFn: async () => {
@@ -152,7 +149,6 @@ function AppInner() {
     retry: 1,
   });
 
-  // Use isSuperAdmin() backend method as the authoritative check
   const { data: isSuperAdminBackend } = useQuery({
     queryKey: ["isSuperAdmin"],
     queryFn: async () => {
@@ -168,7 +164,6 @@ function AppInner() {
     retry: 1,
   });
 
-  // Check if helper admin
   const { data: callerAdminRole } = useQuery({
     queryKey: ["callerAdminRole"],
     queryFn: async () => {
@@ -184,21 +179,17 @@ function AppInner() {
     retry: 1,
   });
 
-  // Extract email: prefer local auth email, fallback to backend
   const callerEmail = authEmail ?? fromOptional(callerEmailRaw);
 
-  // Super admin detection: use backend flag OR email match
   const isSuperAdmin =
     isSuperAdminBackend === true ||
     callerEmail?.toLowerCase() === SUPER_ADMIN_EMAIL;
 
-  // Helper admin detection
   const isHelperAdmin =
     callerAdminRole !== null &&
     callerAdminRole !== undefined &&
     "helperAdmin" in (callerAdminRole as object);
 
-  // Any admin (super or helper)
   const isAnyAdmin = isSuperAdmin || isHelperAdmin;
 
   const showProfileSetup =
@@ -213,28 +204,23 @@ function AppInner() {
     actor.startAutoDeleteTimer().catch(() => {});
   }, [actor, actorFetching]);
 
-  // Initializing
   if (isInitializing) {
     return <Spinner label="Loading app…" />;
   }
 
-  // Not logged in
   if (!isAuthenticated) {
     return (
       <PageErrorBoundary pageName="AuthScreen">
-        <AuthScreen />
+        <AuthScreen initialTab={signupAfterReject ? "signup" : "signin"} />
         <Toaster position="top-center" />
       </PageErrorBoundary>
     );
   }
 
-  // Profile loading (only block briefly, not forever)
   if (profileLoading && !isFetched) {
     return <Spinner label="Loading profile…" />;
   }
 
-  // Status checks for normal users only (only after profile loaded)
-  // Super admin bypasses all status checks
   if (
     !isSuperAdmin &&
     !profileLoading &&
@@ -267,8 +253,15 @@ function AppInner() {
               آپ کا اکاؤنٹ بلاک کیا گیا ہے۔
             </p>
             <p className="text-white/50 text-xs mt-2">
-              आपका account block किया गया है।
+              Aapka account block kiya gaya hai. Family admin se contact karein.
             </p>
+            <button
+              type="button"
+              onClick={() => clear()}
+              className="mt-5 px-4 py-2 rounded-xl text-sm font-semibold text-white/70 border border-white/20 hover:bg-white/10 transition-colors"
+            >
+              Logout
+            </button>
           </div>
         </div>
       );
@@ -286,18 +279,42 @@ function AppInner() {
             className="max-w-sm w-full rounded-2xl p-8 text-center"
             style={{
               background: "rgba(10,46,26,0.85)",
-              border: "1px solid rgba(251,191,36,0.3)",
+              border: "1px solid rgba(239,68,68,0.3)",
             }}
           >
-            <div className="w-16 h-16 rounded-full bg-amber-500/20 flex items-center justify-center mx-auto mb-4">
-              <span className="text-3xl">⏳</span>
+            <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
+              <span className="text-3xl">❌</span>
             </div>
             <h2 className="text-white font-bold text-lg mb-2">
-              Account Not Approved
+              Account Rejected
             </h2>
-            <p className="text-white/60 text-sm">
-              आपका account approve नहीं हुआ है, कृपया फिर से request करें।
+            <p className="text-white/70 text-sm leading-relaxed mb-1">
+              Aapka account approve nahi hua.
             </p>
+            <p className="text-white/50 text-xs leading-relaxed mb-5">
+              Please dubara signup karein. Same email se naya account bana sakte
+              hain.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setSignupAfterReject(true);
+                clear();
+              }}
+              className="w-full py-2.5 rounded-xl text-sm font-bold text-white transition-colors"
+              style={{
+                background: "linear-gradient(135deg, #16a34a, #15803d)",
+              }}
+            >
+              Dobara Signup Karein
+            </button>
+            <button
+              type="button"
+              onClick={() => clear()}
+              className="mt-3 w-full py-2 rounded-xl text-xs font-medium text-white/50 hover:text-white/70 transition-colors"
+            >
+              Logout
+            </button>
           </div>
         </div>
       );
@@ -324,13 +341,19 @@ function AppInner() {
             <h2 className="text-white font-bold text-lg mb-2">
               Pending Approval
             </h2>
-            <p className="text-white/60 text-sm">
-              آپ کی request Super Admin کے پاس بھیج دی گئی ہے۔
+            <p className="text-white/70 text-sm mb-1">
+              Aapka account review ke liye bhej diya gaya hai.
             </p>
-            <p className="text-white/50 text-xs mt-2">
-              आपकी account request Super Admin के पास भेज दी गई है। Approve होने के
-              बाद आप app use कर पाएंगे।
+            <p className="text-white/50 text-xs mt-2 leading-relaxed">
+              Admin approve karne ke baad aap app use kar sakte hain.
             </p>
+            <button
+              type="button"
+              onClick={() => clear()}
+              className="mt-5 px-4 py-2 rounded-xl text-sm font-semibold text-white/70 border border-white/20 hover:bg-white/10 transition-colors"
+            >
+              Logout
+            </button>
           </div>
         </div>
       );

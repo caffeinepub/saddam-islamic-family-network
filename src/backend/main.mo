@@ -29,7 +29,6 @@ actor {
   public type UserStatus = { #pending; #approved; #rejected; #blocked };
   public type UserAdminRole = { #none; #helperAdmin; #superAdmin };
 
-  // UserProfile remains UNCHANGED from original for stable variable compatibility
   public type UserProfile = {
     username : Text;
     bio : Text;
@@ -37,7 +36,6 @@ actor {
     coverPhotoId : ?Storage.ExternalBlob;
   };
 
-  // AdminUserView includes email as a separate top-level field
   public type AdminUserView = {
     principal : Principal;
     profile : UserProfile;
@@ -125,7 +123,6 @@ actor {
     recipient : ?Principal;
   };
 
-  // Stable maps (UserProfile unchanged -- no email field to preserve compatibility)
   let profiles = Map.empty<Principal, UserProfile>();
   let posts = Map.empty<PostId, Post>();
   let notifications = Map.empty<NotificationId, Notification>();
@@ -133,14 +130,21 @@ actor {
   let userStatuses = Map.empty<Principal, UserStatus>();
   let userAdminRoles = Map.empty<Principal, UserAdminRole>();
   let userSignupDates = Map.empty<Principal, Time.Time>();
-  // Separate email map (new stable variable, backward compatible addition)
   let userEmails = Map.empty<Principal, Text>();
+  let emailToPrincipal = Map.empty<Text, Principal>();
   var nextPostId = 0;
   var nextCommentId = 0;
   var nextNotificationId = 0;
   var nextChatMessageId = 0;
 
   let lifetimeThreshold = 30 * 24 * 60 * 60 * 1_000_000_000;
+
+  func isRejectedStatus(status : UserStatus) : Bool {
+    switch (status) {
+      case (#rejected) { true };
+      case (_) { false };
+    };
+  };
 
   func isSuperAdminPrincipal(p : Principal) : Bool {
     switch (userEmails.get(p)) {
@@ -193,6 +197,60 @@ actor {
       createdTimestamp = m.createdTimestamp; recipient = m.recipient; };
   };
 
+  // ── Check if email is registered (no auth required) ───────────────────────
+  public query func emailExists(email : Text) : async Bool {
+    emailToPrincipal.get(email) != null
+  };
+
+  // ── Reset password by transferring profile to new principal ───────────────
+  // Caller = new identity derived from email + new password.
+  // No auth check: new principal is not registered yet.
+  // Works for all users including Super Admin.
+  public shared ({ caller }) func resetPasswordForEmail(email : Text) : async () {
+    switch (emailToPrincipal.get(email)) {
+      case (null) { Runtime.trap("Email not registered") };
+      case (?oldPrincipal) {
+        // Same principal = same password, nothing to do
+        if (oldPrincipal == caller) { return };
+        // Transfer access control role to new principal
+        switch (accessControlState.userRoles.get(oldPrincipal)) {
+          case (?r) { accessControlState.userRoles.add(caller, r) };
+          case (null) { accessControlState.userRoles.add(caller, #user) };
+        };
+        // Transfer profile
+        switch (profiles.get(oldPrincipal)) {
+          case (?p) { profiles.add(caller, p) };
+          case (null) {};
+        };
+        // Transfer status
+        switch (userStatuses.get(oldPrincipal)) {
+          case (?s) { userStatuses.add(caller, s) };
+          case (null) {};
+        };
+        // Transfer admin role
+        switch (userAdminRoles.get(oldPrincipal)) {
+          case (?r) { userAdminRoles.add(caller, r) };
+          case (null) {};
+        };
+        // Transfer signup date
+        switch (userSignupDates.get(oldPrincipal)) {
+          case (?d) { userSignupDates.add(caller, d) };
+          case (null) {};
+        };
+        // Update email maps
+        userEmails.add(caller, email);
+        emailToPrincipal.add(email, caller);
+        // Remove old principal data
+        accessControlState.userRoles.remove(oldPrincipal);
+        profiles.remove(oldPrincipal);
+        userStatuses.remove(oldPrincipal);
+        userAdminRoles.remove(oldPrincipal);
+        userSignupDates.remove(oldPrincipal);
+        userEmails.remove(oldPrincipal);
+      };
+    };
+  };
+
   public query ({ caller }) func getCallerUserProfile() : async ?UserProfile {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can view profiles");
@@ -204,26 +262,46 @@ actor {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can save profiles");
     };
-    // Set signup date only on first save
     if (userSignupDates.get(caller) == null) {
       userSignupDates.add(caller, Time.now());
     };
     profiles.add(caller, profile);
   };
 
-  // Save caller's email separately (used for super admin detection)
   public shared ({ caller }) func saveCallerEmail(email : Text) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized");
     };
+    switch (emailToPrincipal.get(email)) {
+      case (?existingPrincipal) {
+        if (existingPrincipal != caller) {
+          let existingStatus = switch (userStatuses.get(existingPrincipal)) {
+            case (?s) { s };
+            case (null) { #pending };
+          };
+          if (isRejectedStatus(existingStatus)) {
+            profiles.remove(existingPrincipal);
+            userStatuses.remove(existingPrincipal);
+            userAdminRoles.remove(existingPrincipal);
+            userSignupDates.remove(existingPrincipal);
+            userEmails.remove(existingPrincipal);
+            emailToPrincipal.remove(email);
+          } else {
+            Runtime.trap("Ye email already registered hai, please login karein");
+          };
+        };
+      };
+      case (null) {};
+    };
+    emailToPrincipal.add(email, caller);
     userEmails.add(caller, email);
-    // Set status based on email
     if (email == SUPER_ADMIN_EMAIL) {
       userStatuses.add(caller, #approved);
       userAdminRoles.add(caller, #superAdmin);
     } else {
       switch (userStatuses.get(caller)) {
         case (null) { userStatuses.add(caller, #pending) };
+        case (?#rejected) { userStatuses.add(caller, #pending) };
         case (_) {};
       };
     };
@@ -262,7 +340,6 @@ actor {
     };
   };
 
-  // Super admin / helper admin: get all users with full details
   public query ({ caller }) func getAllUsersAdminView() : async [AdminUserView] {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized");
@@ -295,7 +372,6 @@ actor {
     result.toArray();
   };
 
-  // Super admin / helper admin: update user status
   public shared ({ caller }) func updateUserStatus(user : Principal, status : UserStatus) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized");
@@ -309,7 +385,6 @@ actor {
     userStatuses.add(user, status);
   };
 
-  // Only super admin can make/remove helper admins
   public shared ({ caller }) func setHelperAdmin(user : Principal, isHelper : Bool) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized");
@@ -325,6 +400,27 @@ actor {
     } else {
       userAdminRoles.add(user, #none);
     };
+  };
+
+  public shared ({ caller }) func cleanupIncompleteUsers() : async Nat {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized");
+    };
+    if (not isAdminPrincipal(caller)) {
+      Runtime.trap("Unauthorized: Only admins can cleanup database");
+    };
+    var count : Nat = 0;
+    let toRemove = profiles.keys().toArray().filter(func(p : Principal) : Bool {
+      userEmails.get(p) == null
+    });
+    for (p in toRemove.values()) {
+      profiles.remove(p);
+      userStatuses.remove(p);
+      userAdminRoles.remove(p);
+      userSignupDates.remove(p);
+      count += 1;
+    };
+    count
   };
 
   public query ({ caller }) func getUserProfile(user : Principal) : async ?UserProfile {

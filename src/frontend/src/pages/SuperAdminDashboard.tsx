@@ -21,6 +21,7 @@ import {
   Search,
   Shield,
   ShieldOff,
+  Trash2,
   UserCheck,
   UserX,
   Users,
@@ -78,6 +79,16 @@ function formatDate(ts: bigint): string {
   });
 }
 
+/** Parse bio string "Relation: Father | Age: 25" into separate fields */
+function parseBio(bio: string): { relation: string; age: string } {
+  const relMatch = bio.match(/Relation:\s*([^|]+)/);
+  const ageMatch = bio.match(/Age:\s*(\d+)/);
+  return {
+    relation: relMatch ? relMatch[1].trim() : "",
+    age: ageMatch ? ageMatch[1].trim() : "",
+  };
+}
+
 interface SuperAdminDashboardProps {
   onBack?: () => void;
 }
@@ -127,6 +138,20 @@ export default function SuperAdminDashboard({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["adminUsers"] });
+    },
+  });
+
+  const cleanupMutation = useMutation({
+    mutationFn: async () => {
+      if (!actor) throw new Error("Actor not available");
+      return actor.cleanupIncompleteUsers();
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ["adminUsers"] });
+      toast.success(`Database cleaned: ${count} incomplete users removed`);
+    },
+    onError: () => {
+      toast.error("Cleanup failed. Please try again.");
     },
   });
 
@@ -235,14 +260,25 @@ export default function SuperAdminDashboard({
             — SIFN Dashboard
           </span>
         </div>
-        <button
-          type="button"
-          data-ocid="admin.refresh_button"
-          onClick={() => refetch()}
-          className="text-white/60 hover:text-white transition-colors"
-        >
-          <RefreshCw className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            title="Cleanup incomplete users"
+            onClick={() => cleanupMutation.mutate()}
+            disabled={cleanupMutation.isPending}
+            className="text-white/40 hover:text-red-400 transition-colors"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            data-ocid="admin.refresh_button"
+            onClick={() => refetch()}
+            className="text-white/60 hover:text-white transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       <div className="max-w-4xl mx-auto px-4 py-5 space-y-5">
@@ -366,6 +402,7 @@ export default function SuperAdminDashboard({
             filtered.map((user, idx) => {
               const isSelf = user.email === SUPER_ADMIN_EMAIL;
               const roleLabel = adminRoleLabel(user.adminRole);
+              const { relation, age } = parseBio(user.profile.bio || "");
               let photoUrl: string | undefined;
               try {
                 photoUrl = user.profile.profilePhotoId?.getDirectURL();
@@ -424,25 +461,31 @@ export default function SuperAdminDashboard({
                         </span>
                       </div>
 
-                      <p className="text-white/50 text-xs truncate">
-                        {user.email || "—"}
+                      {/* Email */}
+                      <p className="text-white/60 text-xs truncate mb-1">
+                        📧 {user.email || "—"}
                       </p>
 
-                      {/* Details row */}
-                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
-                        {user.profile.bio && (
-                          <span className="text-white/40 text-xs truncate max-w-[200px]">
-                            {user.profile.bio}
+                      {/* Relation & Age row */}
+                      <div className="flex flex-wrap gap-3 mb-1">
+                        <span className="text-white/50 text-xs">
+                          👥{" "}
+                          <span className="text-white/70">
+                            {relation || "—"}
                           </span>
-                        )}
+                        </span>
+                        <span className="text-white/50 text-xs">
+                          🎂{" "}
+                          <span className="text-white/70">
+                            {age ? `${age} yrs` : "—"}
+                          </span>
+                        </span>
                       </div>
 
-                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                      {/* Signup date */}
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5">
                         <span className="text-white/30 text-[11px]">
-                          Signup: {formatDate(user.signupDate)}
-                        </span>
-                        <span className="text-white/30 text-[11px] truncate max-w-[160px]">
-                          ID: {user.principal.toString().slice(0, 12)}…
+                          📅 Signup: {formatDate(user.signupDate)}
                         </span>
                       </div>
                     </div>

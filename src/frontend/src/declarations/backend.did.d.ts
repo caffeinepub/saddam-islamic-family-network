@@ -114,6 +114,9 @@ export interface _SERVICE {
   'setHelperAdmin' : ActorMethod<[Principal, boolean], undefined>,
   'startAutoDeleteTimer' : ActorMethod<[], undefined>,
   'unlikePost' : ActorMethod<[PostId], undefined>,
+  'emailExists' : ActorMethod<[string], boolean>,
+  'resetPasswordForEmail' : ActorMethod<[string], undefined>,
+  'cleanupIncompleteUsers' : ActorMethod<[], bigint>,
   'updateUserStatus' : ActorMethod<[Principal, UserStatus], undefined>,
 }
 export declare const idlService: IDL.ServiceClass;
