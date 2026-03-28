@@ -83,6 +83,7 @@ actor {
     content : Text;
     createdTimestamp : Time.Time;
     recipient : ?Principal;
+    imageBlobId : ?Storage.ExternalBlob;
   };
 
   type Notification = {
@@ -127,6 +128,7 @@ actor {
   let posts = Map.empty<PostId, Post>();
   let notifications = Map.empty<NotificationId, Notification>();
   let chatMessages = Map.empty<ChatMessageId, ChatMessage>();
+  let chatMessageImages = Map.empty<ChatMessageId, Storage.ExternalBlob>();
   let userStatuses = Map.empty<Principal, UserStatus>();
   let userAdminRoles = Map.empty<Principal, UserAdminRole>();
   let userSignupDates = Map.empty<Principal, Time.Time>();
@@ -194,7 +196,8 @@ actor {
 
   func chatToView(m : ChatMessage) : ChatMessageView {
     { id = m.id; sender = m.sender; content = m.content;
-      createdTimestamp = m.createdTimestamp; recipient = m.recipient; };
+      createdTimestamp = m.createdTimestamp; recipient = m.recipient;
+      imageBlobId = chatMessageImages.get(m.id); };
   };
 
   // ── Check if email is registered (no auth required) ───────────────────────
@@ -606,27 +609,37 @@ actor {
     };
   };
 
-  public shared ({ caller }) func sendGroupMessage(content : Text) : async () {
+  public shared ({ caller }) func sendGroupMessage(content : Text, imageBlobId : ?Storage.ExternalBlob) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can send messages");
     };
+    let msgId = nextChatMessageId.toText();
     let msg : ChatMessage = {
-      id = nextChatMessageId.toText(); sender = caller; content;
+      id = msgId; sender = caller; content;
       createdTimestamp = Time.now(); recipient = null;
     };
     chatMessages.add(msg.id, msg);
+    switch (imageBlobId) {
+      case (?img) { chatMessageImages.add(msgId, img) };
+      case null {};
+    };
     nextChatMessageId += 1;
   };
 
-  public shared ({ caller }) func sendPrivateMessage(recipient : Principal, content : Text) : async () {
+  public shared ({ caller }) func sendPrivateMessage(recipient : Principal, content : Text, imageBlobId : ?Storage.ExternalBlob) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can send messages");
     };
+    let msgId = nextChatMessageId.toText();
     let msg : ChatMessage = {
-      id = nextChatMessageId.toText(); sender = caller; content;
+      id = msgId; sender = caller; content;
       createdTimestamp = Time.now(); recipient = ?recipient;
     };
     chatMessages.add(msg.id, msg);
+    switch (imageBlobId) {
+      case (?img) { chatMessageImages.add(msgId, img) };
+      case null {};
+    };
     nextChatMessageId += 1;
   };
 

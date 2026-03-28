@@ -1,6 +1,7 @@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Principal } from "@icp-sdk/core/principal";
@@ -8,31 +9,49 @@ import {
   ArrowLeft,
   Check,
   CheckCheck,
+  ImageIcon,
+  Loader2,
   MessageCircle,
+  Mic,
+  Pause,
+  Play,
   Send,
+  Square,
   Users,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { ExternalBlob } from "../backend";
 import type { UserProfile } from "../backend";
 import { useActor } from "../hooks/useActor";
 import { useEmailAuth } from "../hooks/useEmailAuth";
 
 type PrivateChatView = "member-list" | "conversation";
 
-// Chat message type matching backend declaration
 interface ChatMessageView {
   id: string;
   sender: Principal;
   content: string;
   createdTimestamp: bigint;
   recipient?: Principal;
+  imageBlobId?: ExternalBlob | null;
+  _localImageUrl?: string;
+  _localAudioUrl?: string;
+  _uploading?: boolean;
+  _isVoice?: boolean;
 }
 
-// Extended actor interface covering chat APIs declared in backend.d.ts
 interface ChatActor {
-  sendGroupMessage(content: string): Promise<void>;
-  sendPrivateMessage(recipient: Principal, content: string): Promise<void>;
+  sendGroupMessage(
+    content: string,
+    imageBlobId: ExternalBlob | null,
+  ): Promise<void>;
+  sendPrivateMessage(
+    recipient: Principal,
+    content: string,
+    imageBlobId: ExternalBlob | null,
+  ): Promise<void>;
   getGroupMessages(page: bigint, pageSize: bigint): Promise<ChatMessageView[]>;
   getPrivateMessages(
     other: Principal,
@@ -58,6 +77,12 @@ function formatTime(ts: bigint): string {
   return `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
 }
 
+function formatDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
 function getInitials(name: string): string {
   return name
     .split(" ")
@@ -67,7 +92,6 @@ function getInitials(name: string): string {
     .slice(0, 2);
 }
 
-// WhatsApp-style message tick: single gray = sending/optimistic, double green = confirmed
 function MessageTick({ messageId }: { messageId: string }) {
   const isPending = messageId.startsWith("temp-");
   if (isPending) {
@@ -78,6 +102,441 @@ function MessageTick({ messageId }: { messageId: string }) {
       className="w-3 h-3 flex-shrink-0"
       style={{ color: "#4fc87a" }}
     />
+  );
+}
+
+// Audio bubble -- WhatsApp style
+function AudioBubble({ src, isMe }: { src: string; isMe: boolean }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [current, setCurrent] = useState(0);
+
+  const toggle = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (playing) {
+      a.pause();
+    } else {
+      a.play();
+    }
+  };
+
+  return (
+    <div
+      className={`flex items-center gap-2 px-3 py-2 min-w-[180px] ${
+        isMe ? "" : ""
+      }`}
+    >
+      {/* biome-ignore lint/a11y/useMediaCaption: voice playback, captions not applicable */}
+      <audio
+        ref={audioRef}
+        src={src}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => {
+          setPlaying(false);
+          setCurrent(0);
+        }}
+        onLoadedMetadata={(e) =>
+          setDuration(Math.round((e.target as HTMLAudioElement).duration))
+        }
+        onTimeUpdate={(e) =>
+          setCurrent(Math.round((e.target as HTMLAudioElement).currentTime))
+        }
+      />
+      <button
+        type="button"
+        onClick={toggle}
+        className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+          isMe
+            ? "bg-white/20 hover:bg-white/30"
+            : "bg-islamic-green/20 hover:bg-islamic-green/30"
+        } transition-colors`}
+      >
+        {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+      </button>
+      <div className="flex-1">
+        {/* Waveform bars */}
+        <div className="flex items-center gap-[2px] h-6 mb-1">
+          {(
+            [
+              3, 5, 8, 12, 7, 10, 14, 6, 9, 13, 5, 11, 8, 4, 10, 7, 12, 5, 9, 6,
+            ] as const
+          ).map((height, i) => {
+            const filled = duration > 0 && (current / duration) * 20 > i;
+            return (
+              <div
+                // biome-ignore lint/suspicious/noArrayIndexKey: static fixed-length waveform bars, order never changes
+                key={i}
+                className="rounded-full flex-shrink-0"
+                style={{
+                  width: 2,
+                  height: height,
+                  background: filled
+                    ? isMe
+                      ? "rgba(255,255,255,0.9)"
+                      : "#16a34a"
+                    : isMe
+                      ? "rgba(255,255,255,0.35)"
+                      : "rgba(22,163,74,0.35)",
+                  transition: "background 0.1s",
+                }}
+              />
+            );
+          })}
+        </div>
+        <span
+          className={`text-[10px] ${isMe ? "text-white/60" : "text-muted-foreground"}`}
+        >
+          {formatDuration(playing ? current : duration)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function MessageImage({ msg }: { msg: ChatMessageView; isMe?: boolean }) {
+  const [imgUrl, setImgUrl] = useState<string | undefined>(msg._localImageUrl);
+
+  useEffect(() => {
+    if (msg._localImageUrl) {
+      setImgUrl(msg._localImageUrl);
+      return;
+    }
+    if (msg.imageBlobId) {
+      try {
+        setImgUrl(msg.imageBlobId.getDirectURL());
+      } catch {
+        setImgUrl(undefined);
+      }
+    }
+  }, [msg.imageBlobId, msg._localImageUrl]);
+
+  if (!imgUrl && !msg._uploading) return null;
+
+  const handleClick = () => {
+    if (imgUrl) window.open(imgUrl, "_blank");
+  };
+
+  return (
+    <div
+      className="rounded-xl overflow-hidden max-w-[200px] cursor-pointer"
+      onClick={handleClick}
+      onKeyDown={(e) => e.key === "Enter" && handleClick()}
+    >
+      {msg._uploading ? (
+        <div className="w-[200px] h-[150px] bg-black/20 flex items-center justify-center rounded-xl">
+          <Loader2 className="w-6 h-6 animate-spin text-white/70" />
+        </div>
+      ) : imgUrl ? (
+        <img
+          src={imgUrl}
+          alt="Shared"
+          className="rounded-xl object-cover max-h-[300px] w-full"
+          style={{ maxWidth: 200 }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+// ── Voice Recorder Hook ────────────────────────────────────────────────────
+function useVoiceRecorder() {
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      mediaRecorderRef.current = mr;
+      chunksRef.current = [];
+
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      mr.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        const url = URL.createObjectURL(blob);
+        setAudioBlob(blob);
+        setAudioUrl(url);
+        for (const t of stream.getTracks()) {
+          t.stop();
+        }
+      };
+
+      mr.start();
+      setIsRecording(true);
+      setRecordingSeconds(0);
+      timerRef.current = setInterval(() => {
+        setRecordingSeconds((s) => s + 1);
+      }, 1000);
+    } catch {
+      toast.error("Microphone access denied. Please allow mic permission.");
+    }
+  }, []);
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
+    }
+    if (timerRef.current) clearInterval(timerRef.current);
+    setIsRecording(false);
+  }, []);
+
+  const cancelRecording = useCallback(() => {
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.ondataavailable = null;
+      mediaRecorderRef.current.onstop = null;
+      mediaRecorderRef.current.stop();
+      for (const t of mediaRecorderRef.current.stream?.getTracks() ?? []) {
+        t.stop();
+      }
+    }
+    if (timerRef.current) clearInterval(timerRef.current);
+    setIsRecording(false);
+    setAudioBlob(null);
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    setAudioUrl(null);
+    setRecordingSeconds(0);
+  }, [audioUrl]);
+
+  const clearAudio = useCallback(() => {
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    setAudioBlob(null);
+    setAudioUrl(null);
+    setRecordingSeconds(0);
+  }, [audioUrl]);
+
+  return {
+    isRecording,
+    recordingSeconds,
+    audioBlob,
+    audioUrl,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+    clearAudio,
+  };
+}
+
+// ── Input Bar (Photo + Voice) ──────────────────────────────────────────────
+interface InputBarProps {
+  input: string;
+  onInputChange: (v: string) => void;
+  onSend: () => void;
+  onFileSelect: (file: File) => void;
+  onRemoveImage: () => void;
+  selectedImage: File | null;
+  previewUrl: string | null;
+  uploadProgress: number;
+  sending: boolean;
+  disabled: boolean;
+  ocidPrefix: string;
+  // Voice
+  voice: ReturnType<typeof useVoiceRecorder>;
+  onSendVoice: () => void;
+}
+
+function InputBar({
+  input,
+  onInputChange,
+  onSend,
+  onFileSelect,
+  onRemoveImage,
+  selectedImage,
+  previewUrl,
+  uploadProgress,
+  sending,
+  disabled,
+  ocidPrefix,
+  voice,
+  onSendVoice,
+}: InputBarProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      onSend();
+    }
+  };
+
+  // Recorded audio preview bar
+  if (voice.audioUrl && !voice.isRecording) {
+    return (
+      <div className="border-t border-border bg-card">
+        <div className="px-3 py-3 flex gap-2 items-center">
+          <button
+            type="button"
+            onClick={voice.cancelRecording}
+            className="w-9 h-9 rounded-full flex items-center justify-center bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors flex-shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+          <div
+            className="flex-1 rounded-xl overflow-hidden"
+            style={{
+              background: "rgba(22,163,74,0.1)",
+              border: "1px solid rgba(22,163,74,0.25)",
+            }}
+          >
+            <AudioBubble src={voice.audioUrl} isMe={false} />
+          </div>
+          <Button
+            onClick={onSendVoice}
+            disabled={sending}
+            size="icon"
+            className="bg-islamic-green hover:bg-islamic-green/90 text-white flex-shrink-0"
+            data-ocid={`${ocidPrefix}.primary_button`}
+          >
+            {sending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Send className="w-4 h-4" />
+            )}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Recording in progress
+  if (voice.isRecording) {
+    return (
+      <div className="border-t border-border bg-card">
+        <div className="px-3 py-3 flex gap-2 items-center">
+          <button
+            type="button"
+            onClick={voice.cancelRecording}
+            className="w-9 h-9 rounded-full flex items-center justify-center bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors flex-shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+          <div className="flex-1 flex items-center gap-2 px-3">
+            <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+            <span className="text-sm text-foreground font-medium">
+              Recording… {formatDuration(voice.recordingSeconds)}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={voice.stopRecording}
+            className="w-9 h-9 rounded-full flex items-center justify-center bg-red-500 text-white hover:bg-red-600 transition-colors flex-shrink-0"
+            data-ocid={`${ocidPrefix}.stop_record_button`}
+          >
+            <Square className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-t border-border bg-card">
+      {previewUrl && (
+        <div className="px-3 pt-3 pb-1">
+          <div className="relative inline-block">
+            <img
+              src={previewUrl}
+              alt="Preview"
+              className="h-20 w-20 object-cover rounded-xl border-2 border-islamic-green/40"
+            />
+            {sending && uploadProgress > 0 && uploadProgress < 100 && (
+              <div className="absolute inset-0 bg-black/50 rounded-xl flex flex-col items-center justify-center gap-1 px-1">
+                <Loader2 className="w-4 h-4 animate-spin text-white" />
+                <Progress value={uploadProgress} className="h-1 w-14" />
+              </div>
+            )}
+            {!sending && (
+              <button
+                type="button"
+                onClick={onRemoveImage}
+                className="absolute -top-2 -right-2 w-5 h-5 bg-destructive text-white rounded-full flex items-center justify-center shadow"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+            <div className="absolute bottom-1 left-1 right-1">
+              <p className="text-[10px] text-white/80 truncate text-center">
+                {selectedImage?.name}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="px-3 py-3 flex gap-2 items-center">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onFileSelect(f);
+            e.target.value = "";
+          }}
+        />
+
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={disabled || sending}
+          className="text-muted-foreground hover:text-islamic-green flex-shrink-0"
+          data-ocid={`${ocidPrefix}.upload_button`}
+        >
+          <ImageIcon className="w-5 h-5" />
+        </Button>
+
+        <Input
+          data-ocid={`${ocidPrefix}.input`}
+          value={input}
+          onChange={(e) => onInputChange(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={previewUrl ? "Add a caption…" : "Type a message…"}
+          className="flex-1"
+          disabled={sending || disabled}
+        />
+
+        {/* Show send button if there is text/image, else mic button */}
+        {input.trim() || previewUrl ? (
+          <Button
+            data-ocid={`${ocidPrefix}.primary_button`}
+            onClick={onSend}
+            disabled={sending || disabled}
+            size="icon"
+            className="bg-islamic-green hover:bg-islamic-green/90 text-white flex-shrink-0"
+          >
+            {sending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Send className="w-4 h-4" />
+            )}
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            size="icon"
+            onClick={voice.startRecording}
+            disabled={disabled || sending}
+            className="bg-islamic-green hover:bg-islamic-green/90 text-white flex-shrink-0"
+            data-ocid={`${ocidPrefix}.mic_button`}
+          >
+            <Mic className="w-4 h-4" />
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -93,7 +552,23 @@ function GroupChat() {
   >({});
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const voice = useVoiceRecorder();
+
+  const handleFileSelect = (file: File) => {
+    setSelectedImage(file);
+    setPreviewUrl(URL.createObjectURL(file));
+  };
+
+  const handleRemoveImage = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setSelectedImage(null);
+    setPreviewUrl(null);
+    setUploadProgress(0);
+  };
 
   const fetchMessages = useCallback(async () => {
     if (!actor) return;
@@ -102,7 +577,16 @@ function GroupChat() {
     const sorted = [...msgs].sort((a, b) =>
       a.createdTimestamp < b.createdTimestamp ? -1 : 1,
     );
-    setMessages(sorted);
+    setMessages((prev) => {
+      const optimistic = prev.filter((m) => m.id.startsWith("temp-"));
+      const merged = [...sorted];
+      for (const opt of optimistic) {
+        if (!merged.find((m) => m.id === opt.id)) merged.push(opt);
+      }
+      return merged.sort((a, b) =>
+        a.createdTimestamp < b.createdTimestamp ? -1 : 1,
+      );
+    });
 
     const uniqueSenders = sorted
       .map((m) => m.sender.toString())
@@ -135,37 +619,102 @@ function GroupChat() {
     return () => clearInterval(id);
   }, [fetchMessages]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional scroll-to-bottom trigger
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on new message
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleSend = async () => {
-    if (!actor || !input.trim()) return;
-    const content = input.trim();
+  const sendMessage = async (
+    content: string,
+    file: File | null,
+    capturedPreview: string | null,
+  ) => {
+    if (!actor) return;
     setSending(true);
-    setInput("");
-
-    // Optimistic update: add message to local state immediately
     const tempId = `temp-${Date.now()}`;
     const optimisticMsg: ChatMessageView = {
       id: tempId,
       sender: identity!.getPrincipal(),
       content,
       createdTimestamp: BigInt(Date.now()) * BigInt(1_000_000),
+      _localImageUrl: capturedPreview ?? undefined,
+      _uploading: !!file,
     };
     setMessages((prev) => [...prev, optimisticMsg]);
 
     try {
-      await asChatActor(actor).sendGroupMessage(content);
-      // Refresh after short delay to get real message from backend
+      let imageBlob: ExternalBlob | null = null;
+      if (file) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        imageBlob = ExternalBlob.fromBytes(bytes).withUploadProgress((pct) =>
+          setUploadProgress(pct),
+        );
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...m, _uploading: false } : m)),
+        );
+      }
+      await asChatActor(actor).sendGroupMessage(content, imageBlob);
+      if (capturedPreview) URL.revokeObjectURL(capturedPreview);
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
       setTimeout(() => fetchMessages(), 500);
     } catch (err) {
-      console.error("Failed to send message:", err);
-      toast.error("Failed to send message. Please try again.");
-      // Remove optimistic message and restore input on failure
+      console.error("Failed to send:", err);
+      toast.error("Failed to send. Please try again.");
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      setInput(content);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleSend = async () => {
+    const content = input.trim();
+    if (!content && !selectedImage) return;
+    const capturedFile = selectedImage;
+    const capturedPreview = previewUrl;
+    setInput("");
+    setSelectedImage(null);
+    setPreviewUrl(null);
+    setUploadProgress(0);
+    await sendMessage(content, capturedFile, capturedPreview);
+  };
+
+  const handleSendVoice = async () => {
+    if (!voice.audioBlob || !actor) return;
+    const blob = voice.audioBlob;
+    const localUrl = voice.audioUrl;
+    voice.clearAudio();
+
+    setSending(true);
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMsg: ChatMessageView = {
+      id: tempId,
+      sender: identity!.getPrincipal(),
+      content: "",
+      createdTimestamp: BigInt(Date.now()) * BigInt(1_000_000),
+      _localAudioUrl: localUrl ?? undefined,
+      _uploading: true,
+      _isVoice: true,
+    };
+    setMessages((prev) => [...prev, optimisticMsg]);
+
+    try {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const audioExternalBlob = ExternalBlob.fromBytes(bytes);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempId ? { ...m, _uploading: false } : m)),
+      );
+      // Store voice as image blob with special prefix in content
+      await asChatActor(actor).sendGroupMessage(
+        "🎤 Voice message",
+        audioExternalBlob,
+      );
+      if (localUrl) URL.revokeObjectURL(localUrl);
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setTimeout(() => fetchMessages(), 500);
+    } catch (err) {
+      console.error("Failed to send voice:", err);
+      toast.error("Failed to send voice message.");
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
     } finally {
       setSending(false);
     }
@@ -191,6 +740,19 @@ function GroupChat() {
             const profile = profileMap[msg.sender.toString()];
             const name =
               profile?.username ?? `${msg.sender.toString().slice(0, 8)}...`;
+            const hasImage =
+              !!(msg.imageBlobId || msg._localImageUrl) && !msg._isVoice;
+            const hasVoice =
+              msg._isVoice ||
+              (msg.content === "🎤 Voice message" && msg.imageBlobId);
+            let voiceSrc = msg._localAudioUrl;
+            if (!voiceSrc && msg.imageBlobId && hasVoice) {
+              try {
+                voiceSrc = msg.imageBlobId.getDirectURL();
+              } catch {
+                voiceSrc = undefined;
+              }
+            }
             return (
               <div
                 key={msg.id}
@@ -213,13 +775,27 @@ function GroupChat() {
                     </span>
                   )}
                   <div
-                    className={`px-3 py-2 rounded-2xl text-sm leading-relaxed ${
+                    className={`rounded-2xl text-sm leading-relaxed overflow-hidden ${
                       isMe
                         ? "bg-islamic-green text-white rounded-tr-sm"
                         : "bg-card border border-border text-foreground rounded-tl-sm"
-                    }`}
+                    } ${hasImage || hasVoice ? "p-1" : "px-3 py-2"}`}
                   >
-                    {msg.content}
+                    {hasVoice && voiceSrc && (
+                      <AudioBubble src={voiceSrc} isMe={isMe} />
+                    )}
+                    {hasVoice && msg._uploading && (
+                      <div className="flex items-center gap-2 px-3 py-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span className="text-xs">Uploading voice…</span>
+                      </div>
+                    )}
+                    {hasImage && <MessageImage msg={msg} isMe={isMe} />}
+                    {msg.content && !hasVoice && (
+                      <p className={hasImage ? "px-2 pb-1 pt-1 text-sm" : ""}>
+                        {msg.content}
+                      </p>
+                    )}
                   </div>
                   <div className="flex flex-row items-center gap-1 mt-1">
                     <span className="text-[10px] text-muted-foreground">
@@ -235,34 +811,30 @@ function GroupChat() {
         </div>
       </ScrollArea>
 
-      <div className="border-t border-border bg-card px-3 py-3 flex gap-2">
-        {isFetching && !actor && (
-          <p
-            className="text-xs text-muted-foreground self-center"
-            data-ocid="chat.group.loading_state"
-          >
-            Connecting...
-          </p>
-        )}
-        <Input
-          data-ocid="chat.group.input"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-          placeholder="Type a message\u2026"
-          className="flex-1"
-          disabled={sending || !actor}
-        />
-        <Button
-          data-ocid="chat.group.primary_button"
-          onClick={handleSend}
-          disabled={sending || !input.trim() || !actor}
-          size="icon"
-          className="bg-islamic-green hover:bg-islamic-green/90 text-white"
+      {isFetching && !actor && (
+        <p
+          className="text-xs text-muted-foreground text-center py-1"
+          data-ocid="chat.group.loading_state"
         >
-          <Send className="w-4 h-4" />
-        </Button>
-      </div>
+          Connecting...
+        </p>
+      )}
+
+      <InputBar
+        input={input}
+        onInputChange={setInput}
+        onSend={handleSend}
+        onFileSelect={handleFileSelect}
+        onRemoveImage={handleRemoveImage}
+        selectedImage={selectedImage}
+        previewUrl={previewUrl}
+        uploadProgress={uploadProgress}
+        sending={sending}
+        disabled={!actor}
+        ocidPrefix="chat.group"
+        voice={voice}
+        onSendVoice={handleSendVoice}
+      />
     </div>
   );
 }
@@ -283,7 +855,23 @@ function PrivateChat() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [loadingMembers, setLoadingMembers] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const voice = useVoiceRecorder();
+
+  const handleFileSelect = (file: File) => {
+    setSelectedImage(file);
+    setPreviewUrl(URL.createObjectURL(file));
+  };
+
+  const handleRemoveImage = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setSelectedImage(null);
+    setPreviewUrl(null);
+    setUploadProgress(0);
+  };
 
   useEffect(() => {
     if (!actor) return;
@@ -319,7 +907,16 @@ function PrivateChat() {
       const sorted = [...msgs].sort((a, b) =>
         a.createdTimestamp < b.createdTimestamp ? -1 : 1,
       );
-      setMessages(sorted);
+      setMessages((prev) => {
+        const optimistic = prev.filter((m) => m.id.startsWith("temp-"));
+        const merged = [...sorted];
+        for (const opt of optimistic) {
+          if (!merged.find((m) => m.id === opt.id)) merged.push(opt);
+        }
+        return merged.sort((a, b) =>
+          a.createdTimestamp < b.createdTimestamp ? -1 : 1,
+        );
+      });
     },
     [actor],
   );
@@ -331,7 +928,7 @@ function PrivateChat() {
     return () => clearInterval(id);
   }, [selectedMember, actor, fetchConversation]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional scroll-to-bottom trigger
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on new message
   useEffect(() => {
     if (view === "conversation") {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -342,33 +939,106 @@ function PrivateChat() {
     setSelectedMember(member);
     setMessages([]);
     setInput("");
+    handleRemoveImage();
+    voice.clearAudio();
     setView("conversation");
   };
 
-  const handleSend = async () => {
-    if (!actor || !selectedMember || !input.trim()) return;
-    const content = input.trim();
+  const sendMessage = async (
+    content: string,
+    file: File | null,
+    capturedPreview: string | null,
+  ) => {
+    if (!actor || !selectedMember) return;
     setSending(true);
-    setInput("");
-
-    // Optimistic update
     const tempId = `temp-${Date.now()}`;
     const optimisticMsg: ChatMessageView = {
       id: tempId,
       sender: identity!.getPrincipal(),
       content,
       createdTimestamp: BigInt(Date.now()) * BigInt(1_000_000),
+      _localImageUrl: capturedPreview ?? undefined,
+      _uploading: !!file,
     };
     setMessages((prev) => [...prev, optimisticMsg]);
 
     try {
-      await asChatActor(actor).sendPrivateMessage(selectedMember, content);
+      let imageBlob: ExternalBlob | null = null;
+      if (file) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        imageBlob = ExternalBlob.fromBytes(bytes).withUploadProgress((pct) =>
+          setUploadProgress(pct),
+        );
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? { ...m, _uploading: false } : m)),
+        );
+      }
+      await asChatActor(actor).sendPrivateMessage(
+        selectedMember,
+        content,
+        imageBlob,
+      );
+      if (capturedPreview) URL.revokeObjectURL(capturedPreview);
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
       setTimeout(() => fetchConversation(selectedMember), 500);
     } catch (err) {
-      console.error("Failed to send message:", err);
-      toast.error("Failed to send message. Please try again.");
+      console.error("Failed to send:", err);
+      toast.error("Failed to send. Please try again.");
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      setInput(content);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleSend = async () => {
+    const content = input.trim();
+    if (!content && !selectedImage) return;
+    const capturedFile = selectedImage;
+    const capturedPreview = previewUrl;
+    setInput("");
+    setSelectedImage(null);
+    setPreviewUrl(null);
+    setUploadProgress(0);
+    await sendMessage(content, capturedFile, capturedPreview);
+  };
+
+  const handleSendVoice = async () => {
+    if (!voice.audioBlob || !actor || !selectedMember) return;
+    const blob = voice.audioBlob;
+    const localUrl = voice.audioUrl;
+    voice.clearAudio();
+
+    setSending(true);
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMsg: ChatMessageView = {
+      id: tempId,
+      sender: identity!.getPrincipal(),
+      content: "",
+      createdTimestamp: BigInt(Date.now()) * BigInt(1_000_000),
+      _localAudioUrl: localUrl ?? undefined,
+      _uploading: true,
+      _isVoice: true,
+    };
+    setMessages((prev) => [...prev, optimisticMsg]);
+
+    try {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const audioExternalBlob = ExternalBlob.fromBytes(bytes);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempId ? { ...m, _uploading: false } : m)),
+      );
+      await asChatActor(actor).sendPrivateMessage(
+        selectedMember,
+        "🎤 Voice message",
+        audioExternalBlob,
+      );
+      if (localUrl) URL.revokeObjectURL(localUrl);
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setTimeout(() => fetchConversation(selectedMember), 500);
+    } catch (err) {
+      console.error("Failed to send voice:", err);
+      toast.error("Failed to send voice message.");
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
     } finally {
       setSending(false);
     }
@@ -418,6 +1088,19 @@ function PrivateChat() {
           <div className="space-y-3">
             {messages.map((msg, idx) => {
               const isMe = msg.sender.toString() === myPrincipal;
+              const hasImage =
+                !!(msg.imageBlobId || msg._localImageUrl) && !msg._isVoice;
+              const hasVoice =
+                msg._isVoice ||
+                (msg.content === "🎤 Voice message" && msg.imageBlobId);
+              let voiceSrc = msg._localAudioUrl;
+              if (!voiceSrc && msg.imageBlobId && hasVoice) {
+                try {
+                  voiceSrc = msg.imageBlobId.getDirectURL();
+                } catch {
+                  voiceSrc = undefined;
+                }
+              }
               return (
                 <div
                   key={msg.id}
@@ -428,13 +1111,27 @@ function PrivateChat() {
                     className={`max-w-[75%] flex flex-col ${isMe ? "items-end" : "items-start"}`}
                   >
                     <div
-                      className={`px-3 py-2 rounded-2xl text-sm leading-relaxed ${
+                      className={`rounded-2xl text-sm leading-relaxed overflow-hidden ${
                         isMe
                           ? "bg-islamic-green text-white rounded-tr-sm"
                           : "bg-card border border-border text-foreground rounded-tl-sm"
-                      }`}
+                      } ${hasImage || hasVoice ? "p-1" : "px-3 py-2"}`}
                     >
-                      {msg.content}
+                      {hasVoice && voiceSrc && (
+                        <AudioBubble src={voiceSrc} isMe={isMe} />
+                      )}
+                      {hasVoice && msg._uploading && (
+                        <div className="flex items-center gap-2 px-3 py-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span className="text-xs">Uploading voice…</span>
+                        </div>
+                      )}
+                      {hasImage && <MessageImage msg={msg} isMe={isMe} />}
+                      {msg.content && !hasVoice && (
+                        <p className={hasImage ? "px-2 pb-1 pt-1 text-sm" : ""}>
+                          {msg.content}
+                        </p>
+                      )}
                     </div>
                     <div className="flex flex-row items-center gap-1 mt-1">
                       <span className="text-[10px] text-muted-foreground">
@@ -450,41 +1147,28 @@ function PrivateChat() {
           </div>
         </ScrollArea>
 
-        <div className="border-t border-border bg-card px-3 py-3 flex gap-2">
-          {isFetching && !actor && (
-            <p
-              className="text-xs text-muted-foreground self-center"
-              data-ocid="chat.private.loading_state"
-            >
-              Connecting...
-            </p>
-          )}
-          <Input
-            data-ocid="chat.private.input"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-            placeholder={`Message ${partnerName}\u2026`}
-            className="flex-1"
-            disabled={sending || !actor}
-          />
-          <Button
-            data-ocid="chat.private.primary_button"
-            onClick={handleSend}
-            disabled={sending || !input.trim() || !actor || !selectedMember}
-            size="icon"
-            className="bg-islamic-green hover:bg-islamic-green/90 text-white"
-          >
-            <Send className="w-4 h-4" />
-          </Button>
-        </div>
+        <InputBar
+          input={input}
+          onInputChange={setInput}
+          onSend={handleSend}
+          onFileSelect={handleFileSelect}
+          onRemoveImage={handleRemoveImage}
+          selectedImage={selectedImage}
+          previewUrl={previewUrl}
+          uploadProgress={uploadProgress}
+          sending={sending}
+          disabled={!actor}
+          ocidPrefix="chat.private"
+          voice={voice}
+          onSendVoice={handleSendVoice}
+        />
       </div>
     );
   }
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-4 py-3 border-b border-border">
+      <div className="px-3 py-3 border-b border-border">
         <h3 className="font-semibold text-sm text-foreground">
           Family Members
         </h3>
@@ -492,46 +1176,40 @@ function PrivateChat() {
           Select a member to start a private chat
         </p>
       </div>
-      <ScrollArea className="flex-1" data-ocid="chat.members.list">
+      <ScrollArea className="flex-1" data-ocid="chat.private.panel">
         {loadingMembers && (
           <div
-            className="flex flex-col gap-3 p-4"
-            data-ocid="chat.members.loading_state"
+            className="flex items-center justify-center py-12"
+            data-ocid="chat.private.loading_state"
           >
-            {Array.from({ length: 5 }).map((_, i) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton loader
-              <div key={i} className="flex items-center gap-3 animate-pulse">
-                <div className="w-10 h-10 rounded-full bg-muted" />
-                <div className="flex-1 h-4 bg-muted rounded" />
-              </div>
-            ))}
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
           </div>
         )}
         {!loadingMembers && members.length === 0 && (
           <div
             className="flex flex-col items-center justify-center py-16 gap-3"
-            data-ocid="chat.members.empty_state"
+            data-ocid="chat.private.empty_state"
           >
             <Users className="w-12 h-12 text-muted-foreground/40" />
             <p className="text-muted-foreground text-sm">
-              No other family members yet
+              No family members found
             </p>
           </div>
         )}
-        <div className="divide-y divide-border">
+        <div>
           {members.map((member, idx) => {
             const profile = memberProfiles[member.toString()];
             const name =
-              profile?.username ?? `${member.toString().slice(0, 10)}...`;
+              profile?.username ?? `${member.toString().slice(0, 8)}...`;
             return (
               <button
                 key={member.toString()}
                 type="button"
-                data-ocid={`chat.members.item.${idx + 1}`}
+                data-ocid={`chat.private.item.${idx + 1}`}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors text-left border-b border-border/50"
                 onClick={() => openConversation(member)}
-                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors text-left"
               >
-                <Avatar className="w-10 h-10 flex-shrink-0">
+                <Avatar className="w-10 h-10">
                   <AvatarFallback className="bg-islamic-green text-white">
                     {getInitials(name)}
                   </AvatarFallback>
@@ -540,7 +1218,9 @@ function PrivateChat() {
                   <p className="font-medium text-sm text-foreground truncate">
                     {name}
                   </p>
-                  <p className="text-xs text-muted-foreground">Tap to chat</p>
+                  <p className="text-xs text-muted-foreground">
+                    {profile?.bio ? profile.bio.slice(0, 40) : "Family Member"}
+                  </p>
                 </div>
                 <MessageCircle className="w-4 h-4 text-muted-foreground flex-shrink-0" />
               </button>
@@ -548,58 +1228,55 @@ function PrivateChat() {
           })}
         </div>
       </ScrollArea>
+      {isFetching && !actor && (
+        <p
+          className="text-xs text-muted-foreground text-center py-2"
+          data-ocid="chat.private.loading_state"
+        >
+          Connecting...
+        </p>
+      )}
     </div>
   );
 }
 
-// ── Main ChatPage ────────────────────────────────────────────────────────────
+// ── ChatPage ────────────────────────────────────────────────────────────────
 export default function ChatPage() {
   return (
-    <div className="max-w-2xl mx-auto w-full h-[calc(100vh-8rem)] flex flex-col px-2 md:px-4">
-      <div className="flex items-center gap-3 py-4">
-        <div className="w-9 h-9 rounded-full bg-islamic-green flex items-center justify-center flex-shrink-0">
-          <MessageCircle className="w-5 h-5 text-white" />
-        </div>
-        <div>
-          <h1 className="font-display font-bold text-lg text-foreground">
-            Family Chat
-          </h1>
-          <p className="text-xs text-muted-foreground">
-            Stay connected with your family
-          </p>
-        </div>
-      </div>
-
-      <Tabs defaultValue="group" className="flex-1 flex flex-col min-h-0">
-        <TabsList className="w-full grid grid-cols-2 mb-3">
-          <TabsTrigger
-            value="group"
-            data-ocid="chat.group.tab"
-            className="gap-2"
-          >
+    <div
+      className="flex flex-col h-[calc(100vh-64px)] max-w-2xl mx-auto"
+      data-ocid="chat.page"
+    >
+      <Tabs
+        defaultValue="group"
+        className="flex flex-col flex-1 overflow-hidden"
+      >
+        <TabsList
+          className="w-full rounded-none border-b border-border bg-card px-4 shrink-0"
+          data-ocid="chat.tab"
+        >
+          <TabsTrigger value="group" className="flex-1 gap-2">
             <Users className="w-4 h-4" />
             Family Group
           </TabsTrigger>
-          <TabsTrigger
-            value="private"
-            data-ocid="chat.private.tab"
-            className="gap-2"
-          >
+          <TabsTrigger value="private" className="flex-1 gap-2">
             <MessageCircle className="w-4 h-4" />
             Private Chat
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="group" className="flex-1 min-h-0 m-0">
-          <div className="h-full border border-border rounded-xl bg-background overflow-hidden flex flex-col">
-            <GroupChat />
-          </div>
+        <TabsContent
+          value="group"
+          className="flex-1 overflow-hidden mt-0 data-[state=active]:flex data-[state=active]:flex-col"
+        >
+          <GroupChat />
         </TabsContent>
 
-        <TabsContent value="private" className="flex-1 min-h-0 m-0">
-          <div className="h-full border border-border rounded-xl bg-background overflow-hidden flex flex-col">
-            <PrivateChat />
-          </div>
+        <TabsContent
+          value="private"
+          className="flex-1 overflow-hidden mt-0 data-[state=active]:flex data-[state=active]:flex-col"
+        >
+          <PrivateChat />
         </TabsContent>
       </Tabs>
     </div>
