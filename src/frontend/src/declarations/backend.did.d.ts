@@ -13,6 +13,7 @@ export interface ChatMessageView {
   'recipient' : [] | [Principal],
   'sender' : Principal,
   'createdTimestamp' : Time,
+  'imageBlobId' : [] | [ExternalBlob],
 }
 export type CommentId = string;
 export interface CommentView {

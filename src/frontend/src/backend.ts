@@ -134,6 +134,7 @@ export interface ChatMessageView {
     recipient?: Principal;
     sender: Principal;
     createdTimestamp: Time;
+    imageBlobId?: ExternalBlob;
 }
 export interface UserProfile {
     bio: string;
@@ -495,14 +496,14 @@ export class Backend implements backendInterface {
         if (this.processError) {
             try {
                 const result = await this.actor.getGroupMessages(arg0, arg1);
-                return from_candid_vec_n25(this._uploadFile, this._downloadFile, result);
+                return await from_candid_vec_n25(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getGroupMessages(arg0, arg1);
-            return from_candid_vec_n25(this._uploadFile, this._downloadFile, result);
+            return await from_candid_vec_n25(this._uploadFile, this._downloadFile, result);
         }
     }
     async getMyNotifications(): Promise<Array<NotificationView>> {
@@ -523,14 +524,14 @@ export class Backend implements backendInterface {
         if (this.processError) {
             try {
                 const result = await this.actor.getPrivateMessages(arg0, arg1, arg2);
-                return from_candid_vec_n25(this._uploadFile, this._downloadFile, result);
+                return await from_candid_vec_n25(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getPrivateMessages(arg0, arg1, arg2);
-            return from_candid_vec_n25(this._uploadFile, this._downloadFile, result);
+            return await from_candid_vec_n25(this._uploadFile, this._downloadFile, result);
         }
     }
     async getProfile(arg0: Principal): Promise<UserProfile | null> {
@@ -800,8 +801,8 @@ export class Backend implements backendInterface {
         }
     }
 }
-function from_candid_ChatMessageView_n26(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _ChatMessageView): ChatMessageView {
-    return from_candid_record_n27(_uploadFile, _downloadFile, value);
+async function from_candid_ChatMessageView_n26(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _ChatMessageView): Promise<ChatMessageView> {
+    return await from_candid_record_n27(_uploadFile, _downloadFile, value);
 }
 function from_candid_CommentView_n23(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _CommentView): CommentView {
     return from_candid_record_n24(_uploadFile, _downloadFile, value);
@@ -911,25 +912,29 @@ function from_candid_record_n24(_uploadFile: (file: ExternalBlob) => Promise<Uin
         postId: value.postId
     };
 }
-function from_candid_record_n27(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+async function from_candid_record_n27(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     id: _ChatMessageId;
     content: string;
     recipient: [] | [Principal];
     sender: Principal;
     createdTimestamp: _Time;
-}): {
+    imageBlobId?: [] | [_ExternalBlob];
+}): Promise<{
     id: ChatMessageId;
     content: string;
     recipient?: Principal;
     sender: Principal;
     createdTimestamp: Time;
-} {
+    imageBlobId?: ExternalBlob;
+}> {
+    const imageBlobIdRaw = value.imageBlobId ?? [];
     return {
         id: value.id,
         content: value.content,
         recipient: record_opt_to_undefined(from_candid_opt_n28(_uploadFile, _downloadFile, value.recipient)),
         sender: value.sender,
-        createdTimestamp: value.createdTimestamp
+        createdTimestamp: value.createdTimestamp,
+        imageBlobId: record_opt_to_undefined(await from_candid_opt_n15(_uploadFile, _downloadFile, imageBlobIdRaw)),
     };
 }
 function from_candid_record_n31(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
@@ -996,8 +1001,8 @@ async function from_candid_vec_n19(_uploadFile: (file: ExternalBlob) => Promise<
 function from_candid_vec_n22(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_CommentView>): Array<CommentView> {
     return value.map((x)=>from_candid_CommentView_n23(_uploadFile, _downloadFile, x));
 }
-function from_candid_vec_n25(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_ChatMessageView>): Array<ChatMessageView> {
-    return value.map((x)=>from_candid_ChatMessageView_n26(_uploadFile, _downloadFile, x));
+async function from_candid_vec_n25(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_ChatMessageView>): Promise<Array<ChatMessageView>> {
+    return await Promise.all(value.map(async (x) => await from_candid_ChatMessageView_n26(_uploadFile, _downloadFile, x)));
 }
 function from_candid_vec_n29(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_NotificationView>): Array<NotificationView> {
     return value.map((x)=>from_candid_NotificationView_n30(_uploadFile, _downloadFile, x));
