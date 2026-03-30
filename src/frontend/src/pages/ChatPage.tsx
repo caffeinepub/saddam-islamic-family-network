@@ -40,6 +40,7 @@ interface ChatMessageView {
   _localAudioUrl?: string;
   _uploading?: boolean;
   _isVoice?: boolean;
+  _failed?: boolean;
 }
 
 interface ChatActor {
@@ -581,7 +582,15 @@ function GroupChat() {
       const optimistic = prev.filter((m) => m.id.startsWith("temp-"));
       const merged = [...sorted];
       for (const opt of optimistic) {
-        if (!merged.find((m) => m.id === opt.id)) merged.push(opt);
+        const isConfirmed = sorted.some(
+          (m) =>
+            m.sender.toString() === opt.sender.toString() &&
+            m.content === opt.content &&
+            Math.abs(
+              Number(m.createdTimestamp) - Number(opt.createdTimestamp),
+            ) < 30_000_000_000,
+        );
+        if (!isConfirmed) merged.push(opt);
       }
       return merged.sort((a, b) =>
         a.createdTimestamp < b.createdTimestamp ? -1 : 1,
@@ -654,13 +663,22 @@ function GroupChat() {
         );
       }
       await asChatActor(actor).sendGroupMessage(content, imageBlob);
+      // Keep optimistic message visible; just clear uploading flag
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempId ? { ...m, _uploading: false } : m)),
+      );
       if (capturedPreview) URL.revokeObjectURL(capturedPreview);
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      setTimeout(() => fetchMessages(), 500);
+      // Fetch immediately and again after 2s as ICP query fallback
+      fetchMessages();
+      setTimeout(() => fetchMessages(), 2000);
     } catch (err) {
       console.error("Failed to send:", err);
       toast.error("Failed to send. Please try again.");
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === tempId ? { ...m, _uploading: false, _failed: true } : m,
+        ),
+      );
     } finally {
       setSending(false);
     }
@@ -689,7 +707,7 @@ function GroupChat() {
     const optimisticMsg: ChatMessageView = {
       id: tempId,
       sender: identity!.getPrincipal(),
-      content: "",
+      content: "🎤 Voice message",
       createdTimestamp: BigInt(Date.now()) * BigInt(1_000_000),
       _localAudioUrl: localUrl ?? undefined,
       _uploading: true,
@@ -708,13 +726,22 @@ function GroupChat() {
         "🎤 Voice message",
         audioExternalBlob,
       );
+      // Keep optimistic message visible; just clear uploading flag
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempId ? { ...m, _uploading: false } : m)),
+      );
       if (localUrl) URL.revokeObjectURL(localUrl);
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      setTimeout(() => fetchMessages(), 500);
+      // Fetch immediately and again after 2s as ICP query fallback
+      fetchMessages();
+      setTimeout(() => fetchMessages(), 2000);
     } catch (err) {
       console.error("Failed to send voice:", err);
       toast.error("Failed to send voice message.");
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === tempId ? { ...m, _uploading: false, _failed: true } : m,
+        ),
+      );
     } finally {
       setSending(false);
     }
@@ -740,11 +767,12 @@ function GroupChat() {
             const profile = profileMap[msg.sender.toString()];
             const name =
               profile?.username ?? `${msg.sender.toString().slice(0, 8)}...`;
-            const hasImage =
-              !!(msg.imageBlobId || msg._localImageUrl) && !msg._isVoice;
+            // Declare hasVoice first so hasImage can use it
             const hasVoice =
               msg._isVoice ||
-              (msg.content === "🎤 Voice message" && msg.imageBlobId);
+              (msg.content === "🎤 Voice message" && !!msg.imageBlobId);
+            const hasImage =
+              !!(msg.imageBlobId || msg._localImageUrl) && !hasVoice;
             let voiceSrc = msg._localAudioUrl;
             if (!voiceSrc && msg.imageBlobId && hasVoice) {
               try {
@@ -803,6 +831,11 @@ function GroupChat() {
                     </span>
                     {isMe && <MessageTick messageId={msg.id} />}
                   </div>
+                  {msg._failed && (
+                    <span className="text-[10px] text-red-400 mt-0.5">
+                      ⚠ Failed to send
+                    </span>
+                  )}
                 </div>
               </div>
             );
@@ -911,7 +944,15 @@ function PrivateChat() {
         const optimistic = prev.filter((m) => m.id.startsWith("temp-"));
         const merged = [...sorted];
         for (const opt of optimistic) {
-          if (!merged.find((m) => m.id === opt.id)) merged.push(opt);
+          const isConfirmed = sorted.some(
+            (m) =>
+              m.sender.toString() === opt.sender.toString() &&
+              m.content === opt.content &&
+              Math.abs(
+                Number(m.createdTimestamp) - Number(opt.createdTimestamp),
+              ) < 30_000_000_000,
+          );
+          if (!isConfirmed) merged.push(opt);
         }
         return merged.sort((a, b) =>
           a.createdTimestamp < b.createdTimestamp ? -1 : 1,
@@ -978,13 +1019,22 @@ function PrivateChat() {
         content,
         imageBlob,
       );
+      // Keep optimistic message visible; just clear uploading flag
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempId ? { ...m, _uploading: false } : m)),
+      );
       if (capturedPreview) URL.revokeObjectURL(capturedPreview);
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      setTimeout(() => fetchConversation(selectedMember), 500);
+      // Fetch immediately and again after 2s as ICP query fallback
+      fetchConversation(selectedMember);
+      setTimeout(() => fetchConversation(selectedMember), 2000);
     } catch (err) {
       console.error("Failed to send:", err);
       toast.error("Failed to send. Please try again.");
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === tempId ? { ...m, _uploading: false, _failed: true } : m,
+        ),
+      );
     } finally {
       setSending(false);
     }
@@ -1013,7 +1063,7 @@ function PrivateChat() {
     const optimisticMsg: ChatMessageView = {
       id: tempId,
       sender: identity!.getPrincipal(),
-      content: "",
+      content: "🎤 Voice message",
       createdTimestamp: BigInt(Date.now()) * BigInt(1_000_000),
       _localAudioUrl: localUrl ?? undefined,
       _uploading: true,
@@ -1032,13 +1082,22 @@ function PrivateChat() {
         "🎤 Voice message",
         audioExternalBlob,
       );
+      // Keep optimistic message visible; just clear uploading flag
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempId ? { ...m, _uploading: false } : m)),
+      );
       if (localUrl) URL.revokeObjectURL(localUrl);
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      setTimeout(() => fetchConversation(selectedMember), 500);
+      // Fetch immediately and again after 2s as ICP query fallback
+      fetchConversation(selectedMember);
+      setTimeout(() => fetchConversation(selectedMember), 2000);
     } catch (err) {
       console.error("Failed to send voice:", err);
       toast.error("Failed to send voice message.");
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === tempId ? { ...m, _uploading: false, _failed: true } : m,
+        ),
+      );
     } finally {
       setSending(false);
     }
@@ -1088,11 +1147,12 @@ function PrivateChat() {
           <div className="space-y-3">
             {messages.map((msg, idx) => {
               const isMe = msg.sender.toString() === myPrincipal;
-              const hasImage =
-                !!(msg.imageBlobId || msg._localImageUrl) && !msg._isVoice;
+              // Declare hasVoice first so hasImage can use it
               const hasVoice =
                 msg._isVoice ||
-                (msg.content === "🎤 Voice message" && msg.imageBlobId);
+                (msg.content === "🎤 Voice message" && !!msg.imageBlobId);
+              const hasImage =
+                !!(msg.imageBlobId || msg._localImageUrl) && !hasVoice;
               let voiceSrc = msg._localAudioUrl;
               if (!voiceSrc && msg.imageBlobId && hasVoice) {
                 try {
@@ -1139,6 +1199,11 @@ function PrivateChat() {
                       </span>
                       {isMe && <MessageTick messageId={msg.id} />}
                     </div>
+                    {msg._failed && (
+                      <span className="text-[10px] text-red-400 mt-0.5">
+                        ⚠ Failed to send
+                      </span>
+                    )}
                   </div>
                 </div>
               );
