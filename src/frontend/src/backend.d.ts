@@ -52,6 +52,7 @@ export interface ChatMessageView {
     recipient?: Principal;
     sender: Principal;
     createdTimestamp: Time;
+    imageBlobId?: ExternalBlob;
 }
 export interface UserProfile {
     bio: string;
@@ -108,8 +109,8 @@ export interface backendInterface {
     resetPasswordForEmail(email: string): Promise<void>;
     saveCallerEmail(email: string): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
-    sendGroupMessage(content: string): Promise<void>;
-    sendPrivateMessage(recipient: Principal, content: string): Promise<void>;
+    sendGroupMessage(content: string, imageBlobId: ExternalBlob | null): Promise<void>;
+    sendPrivateMessage(recipient: Principal, content: string, imageBlobId: ExternalBlob | null): Promise<void>;
     setHelperAdmin(user: Principal, isHelper: boolean): Promise<void>;
     startAutoDeleteTimer(): Promise<void>;
     unlikePost(postId: PostId): Promise<void>;
