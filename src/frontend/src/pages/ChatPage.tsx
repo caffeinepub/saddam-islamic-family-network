@@ -197,22 +197,66 @@ function AudioBubble({ src, isMe }: { src: string; isMe: boolean }) {
   );
 }
 
+function VoiceMessageBubble({
+  msg,
+  isMe,
+}: { msg: ChatMessageView; isMe: boolean }) {
+  const getUrl = () => {
+    if (msg._localAudioUrl) return msg._localAudioUrl;
+    try {
+      return msg.imageBlobId?.getDirectURL();
+    } catch {
+      return undefined;
+    }
+  };
+  const [src, setSrc] = useState<string | undefined>(getUrl);
+
+  useEffect(() => {
+    if (msg._localAudioUrl) {
+      setSrc(msg._localAudioUrl);
+      return;
+    }
+    try {
+      setSrc(msg.imageBlobId?.getDirectURL());
+    } catch {
+      setSrc(undefined);
+    }
+  }, [msg._localAudioUrl, msg.imageBlobId]);
+
+  if (msg._uploading) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2">
+        <Loader2 className="w-4 h-4 animate-spin" />
+        <span className="text-xs">Uploading voice…</span>
+      </div>
+    );
+  }
+  if (!src) return null;
+  return <AudioBubble src={src} isMe={isMe} />;
+}
+
 function MessageImage({ msg }: { msg: ChatMessageView; isMe?: boolean }) {
-  const [imgUrl, setImgUrl] = useState<string | undefined>(msg._localImageUrl);
+  const getUrl = () => {
+    if (msg._localImageUrl) return msg._localImageUrl;
+    try {
+      return msg.imageBlobId?.getDirectURL();
+    } catch {
+      return undefined;
+    }
+  };
+  const [imgUrl, setImgUrl] = useState<string | undefined>(getUrl);
 
   useEffect(() => {
     if (msg._localImageUrl) {
       setImgUrl(msg._localImageUrl);
       return;
     }
-    if (msg.imageBlobId) {
-      try {
-        setImgUrl(msg.imageBlobId.getDirectURL());
-      } catch {
-        setImgUrl(undefined);
-      }
+    try {
+      setImgUrl(msg.imageBlobId?.getDirectURL());
+    } catch {
+      setImgUrl(undefined);
     }
-  }, [msg.imageBlobId, msg._localImageUrl]);
+  }, [msg._localImageUrl, msg.imageBlobId]);
 
   if (!imgUrl && !msg._uploading) return null;
 
@@ -768,19 +812,9 @@ function GroupChat() {
             const name =
               profile?.username ?? `${msg.sender.toString().slice(0, 8)}...`;
             // Declare hasVoice first so hasImage can use it
-            const hasVoice =
-              msg._isVoice ||
-              (msg.content === "🎤 Voice message" && !!msg.imageBlobId);
+            const hasVoice = msg._isVoice || msg.content === "🎤 Voice message";
             const hasImage =
               !!(msg.imageBlobId || msg._localImageUrl) && !hasVoice;
-            let voiceSrc = msg._localAudioUrl;
-            if (!voiceSrc && msg.imageBlobId && hasVoice) {
-              try {
-                voiceSrc = msg.imageBlobId.getDirectURL();
-              } catch {
-                voiceSrc = undefined;
-              }
-            }
             return (
               <div
                 key={msg.id}
@@ -809,15 +843,7 @@ function GroupChat() {
                         : "bg-card border border-border text-foreground rounded-tl-sm"
                     } ${hasImage || hasVoice ? "p-1" : "px-3 py-2"}`}
                   >
-                    {hasVoice && voiceSrc && (
-                      <AudioBubble src={voiceSrc} isMe={isMe} />
-                    )}
-                    {hasVoice && msg._uploading && (
-                      <div className="flex items-center gap-2 px-3 py-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span className="text-xs">Uploading voice…</span>
-                      </div>
-                    )}
+                    {hasVoice && <VoiceMessageBubble msg={msg} isMe={isMe} />}
                     {hasImage && <MessageImage msg={msg} isMe={isMe} />}
                     {msg.content && !hasVoice && (
                       <p className={hasImage ? "px-2 pb-1 pt-1 text-sm" : ""}>
@@ -1149,18 +1175,9 @@ function PrivateChat() {
               const isMe = msg.sender.toString() === myPrincipal;
               // Declare hasVoice first so hasImage can use it
               const hasVoice =
-                msg._isVoice ||
-                (msg.content === "🎤 Voice message" && !!msg.imageBlobId);
+                msg._isVoice || msg.content === "🎤 Voice message";
               const hasImage =
                 !!(msg.imageBlobId || msg._localImageUrl) && !hasVoice;
-              let voiceSrc = msg._localAudioUrl;
-              if (!voiceSrc && msg.imageBlobId && hasVoice) {
-                try {
-                  voiceSrc = msg.imageBlobId.getDirectURL();
-                } catch {
-                  voiceSrc = undefined;
-                }
-              }
               return (
                 <div
                   key={msg.id}
@@ -1177,15 +1194,7 @@ function PrivateChat() {
                           : "bg-card border border-border text-foreground rounded-tl-sm"
                       } ${hasImage || hasVoice ? "p-1" : "px-3 py-2"}`}
                     >
-                      {hasVoice && voiceSrc && (
-                        <AudioBubble src={voiceSrc} isMe={isMe} />
-                      )}
-                      {hasVoice && msg._uploading && (
-                        <div className="flex items-center gap-2 px-3 py-2">
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span className="text-xs">Uploading voice…</span>
-                        </div>
-                      )}
+                      {hasVoice && <VoiceMessageBubble msg={msg} isMe={isMe} />}
                       {hasImage && <MessageImage msg={msg} isMe={isMe} />}
                       {msg.content && !hasVoice && (
                         <p className={hasImage ? "px-2 pb-1 pt-1 text-sm" : ""}>
