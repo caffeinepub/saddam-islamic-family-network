@@ -199,8 +199,8 @@ export interface backendInterface {
     markNotificationRead(notifId: NotificationId): Promise<void>;
     replyToComment(postId: PostId, commentId: CommentId, content: string): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
-    sendGroupMessage(content: string): Promise<void>;
-    sendPrivateMessage(recipient: Principal, content: string): Promise<void>;
+    sendGroupMessage(content: string, imageBlobId: ExternalBlob | null): Promise<void>;
+    sendPrivateMessage(recipient: Principal, content: string, imageBlobId: ExternalBlob | null): Promise<void>;
     setHelperAdmin(user: Principal, isHelper: boolean): Promise<void>;
     startAutoDeleteTimer(): Promise<void>;
     unlikePost(postId: PostId): Promise<void>;
@@ -674,31 +674,33 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async sendGroupMessage(arg0: string): Promise<void> {
+    async sendGroupMessage(arg0: string, arg1: ExternalBlob | null): Promise<void> {
+        const candidImageBlobId = arg1 !== null ? [await to_candid_ExternalBlob_n11(this._uploadFile, this._downloadFile, arg1)] as [Uint8Array] : [] as [];
         if (this.processError) {
             try {
-                const result = await this.actor.sendGroupMessage(arg0);
+                const result = await (this.actor as any).sendGroupMessage(arg0, candidImageBlobId);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.sendGroupMessage(arg0);
+            const result = await (this.actor as any).sendGroupMessage(arg0, candidImageBlobId);
             return result;
         }
     }
-    async sendPrivateMessage(arg0: Principal, arg1: string): Promise<void> {
+    async sendPrivateMessage(arg0: Principal, arg1: string, arg2: ExternalBlob | null): Promise<void> {
+        const candidImageBlobId = arg2 !== null ? [await to_candid_ExternalBlob_n11(this._uploadFile, this._downloadFile, arg2)] as [Uint8Array] : [] as [];
         if (this.processError) {
             try {
-                const result = await this.actor.sendPrivateMessage(arg0, arg1);
+                const result = await (this.actor as any).sendPrivateMessage(arg0, arg1, candidImageBlobId);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.sendPrivateMessage(arg0, arg1);
+            const result = await (this.actor as any).sendPrivateMessage(arg0, arg1, candidImageBlobId);
             return result;
         }
     }

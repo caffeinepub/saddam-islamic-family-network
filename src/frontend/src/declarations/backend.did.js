@@ -40,6 +40,7 @@ export const ChatMessageId = IDL.Text;
 export const ChatMessageView = IDL.Record({
   'id': ChatMessageId, 'content': IDL.Text, 'recipient': IDL.Opt(IDL.Principal),
   'sender': IDL.Principal, 'createdTimestamp': Time,
+  'imageBlobId': IDL.Opt(ExternalBlob),
 });
 export const NotificationId = IDL.Text;
 export const NotificationType = IDL.Variant({ 'like': IDL.Null, 'comment': IDL.Null });
@@ -83,11 +84,14 @@ export const idlService = IDL.Service({
   'replyToComment': IDL.Func([PostId, CommentId, IDL.Text], [], []),
   'saveCallerEmail': IDL.Func([IDL.Text], [], []),
   'saveCallerUserProfile': IDL.Func([UserProfile], [], []),
-  'sendGroupMessage': IDL.Func([IDL.Text], [], []),
-  'sendPrivateMessage': IDL.Func([IDL.Principal, IDL.Text], [], []),
+  'sendGroupMessage': IDL.Func([IDL.Text, IDL.Opt(ExternalBlob)], [], []),
+  'sendPrivateMessage': IDL.Func([IDL.Principal, IDL.Text, IDL.Opt(ExternalBlob)], [], []),
   'setHelperAdmin': IDL.Func([IDL.Principal, IDL.Bool], [], []),
   'startAutoDeleteTimer': IDL.Func([], [], []),
   'unlikePost': IDL.Func([PostId], [], []),
+  'emailExists': IDL.Func([IDL.Text], [IDL.Bool], ['query']),
+  'resetPasswordForEmail': IDL.Func([IDL.Text], [], []),
+  'cleanupIncompleteUsers': IDL.Func([], [IDL.Nat], []),
   'updateUserStatus': IDL.Func([IDL.Principal, UserStatus], [], []),
 });
 
@@ -126,6 +130,7 @@ export const idlFactory = ({ IDL }) => {
   const ChatMessageView = IDL.Record({
     'id': ChatMessageId, 'content': IDL.Text, 'recipient': IDL.Opt(IDL.Principal),
     'sender': IDL.Principal, 'createdTimestamp': Time,
+    'imageBlobId': IDL.Opt(ExternalBlob),
   });
   const NotificationId = IDL.Text;
   const NotificationType = IDL.Variant({ 'like': IDL.Null, 'comment': IDL.Null });
@@ -168,11 +173,14 @@ export const idlFactory = ({ IDL }) => {
     'replyToComment': IDL.Func([PostId, CommentId, IDL.Text], [], []),
     'saveCallerEmail': IDL.Func([IDL.Text], [], []),
     'saveCallerUserProfile': IDL.Func([UserProfile], [], []),
-    'sendGroupMessage': IDL.Func([IDL.Text], [], []),
-    'sendPrivateMessage': IDL.Func([IDL.Principal, IDL.Text], [], []),
+    'sendGroupMessage': IDL.Func([IDL.Text, IDL.Opt(ExternalBlob)], [], []),
+    'sendPrivateMessage': IDL.Func([IDL.Principal, IDL.Text, IDL.Opt(ExternalBlob)], [], []),
     'setHelperAdmin': IDL.Func([IDL.Principal, IDL.Bool], [], []),
     'startAutoDeleteTimer': IDL.Func([], [], []),
     'unlikePost': IDL.Func([PostId], [], []),
+    'emailExists': IDL.Func([IDL.Text], [IDL.Bool], ['query']),
+    'resetPasswordForEmail': IDL.Func([IDL.Text], [], []),
+    'cleanupIncompleteUsers': IDL.Func([], [IDL.Nat], []),
     'updateUserStatus': IDL.Func([IDL.Principal, UserStatus], [], []),
   });
 };
