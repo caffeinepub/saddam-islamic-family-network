@@ -18,12 +18,18 @@ interface StoredSession {
   seedHex: string;
 }
 
+export type LoginResult =
+  | "success"
+  | "email_not_found"
+  | "wrong_password"
+  | "error";
+
 export type EmailAuthContextType = {
   identity: Identity | undefined;
   email: string | undefined;
   isInitializing: boolean;
   isLoggingIn: boolean;
-  login: (email: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<LoginResult>;
   clear: () => void;
 };
 
@@ -113,13 +119,35 @@ export function EmailAuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(
-    async (emailInput: string, password: string): Promise<boolean> => {
+    async (emailInput: string, password: string): Promise<LoginResult> => {
       setIsLoggingIn(true);
       try {
         const { createActorWithConfig } = await import("../config");
         const { getSecretParameter } = await import("../utils/urlParams");
 
-        const id = await deriveIdentity(emailInput, password);
+        const normalizedEmail = emailInput.toLowerCase().trim();
+
+        console.log("[EmailAuth] Login attempt for:", normalizedEmail);
+
+        // Step 1: Check if email is registered using anonymous actor
+        try {
+          const anonActor = await createActorWithConfig();
+          const exists = await anonActor.emailExists(normalizedEmail);
+          console.log("[EmailAuth] emailExists result:", exists);
+          if (!exists) {
+            return "email_not_found";
+          }
+        } catch (checkErr) {
+          // If emailExists call fails (network/canister issue), log and continue
+          // Don't block login on this check
+          console.warn(
+            "[EmailAuth] emailExists check failed, proceeding:",
+            checkErr,
+          );
+        }
+
+        // Step 2: Derive identity from email+password and check profile
+        const id = await deriveIdentity(emailInput.trim(), password);
         const actor = await createActorWithConfig({
           agentOptions: { identity: id },
         });
@@ -127,30 +155,34 @@ export function EmailAuthProvider({ children }: { children: ReactNode }) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (actor as any)._initializeAccessControlWithSecret(adminToken);
 
+        console.log("[EmailAuth] Actor created, checking profile...");
+
         // Verify account exists (correct password → same principal → same profile)
         const profile = await actor.getCallerUserProfile();
+        console.log("[EmailAuth] Profile found:", profile !== null);
+
         if (profile === null) {
-          console.warn("[EmailAuth] No profile found for this identity");
-          return false;
+          // Email exists but this identity has no profile = wrong password
+          return "wrong_password";
         }
 
         // Persist session using derived seed
-        const seed = await deriveSeed(emailInput, password);
+        const seed = await deriveSeed(emailInput.trim(), password);
         const seedHex = bytesToHex(seed);
         localStorage.setItem(
           SESSION_KEY,
           JSON.stringify({
-            email: emailInput,
+            email: normalizedEmail,
             seedHex,
           } satisfies StoredSession),
         );
 
         setIdentity(id);
-        setEmail(emailInput);
-        return true;
+        setEmail(normalizedEmail);
+        return "success";
       } catch (e) {
         console.error("[EmailAuth] Login error:", e);
-        return false;
+        return "error";
       } finally {
         setIsLoggingIn(false);
       }

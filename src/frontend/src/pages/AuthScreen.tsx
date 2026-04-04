@@ -16,7 +16,11 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { ExternalBlob } from "../backend";
 import { createActorWithConfig } from "../config";
-import { deriveIdentity, useEmailAuth } from "../hooks/useEmailAuth";
+import {
+  type LoginResult,
+  deriveIdentity,
+  useEmailAuth,
+} from "../hooks/useEmailAuth";
 import { getSecretParameter } from "../utils/urlParams";
 
 const RELATIONS = [
@@ -106,27 +110,30 @@ export default function AuthScreen({ initialTab = "signin" }: AuthScreenProps) {
       return;
     }
 
-    // Check if email is registered before attempting login
-    try {
-      const checkActor = await createActorWithConfig();
-      const exists = await checkActor.emailExists(siEmail.trim().toLowerCase());
-      if (!exists) {
-        toast.error("Ye email registered nahi hai. Pehle Sign Up karein.", {
-          duration: 5000,
-        });
-        return;
-      }
-    } catch {
-      // If check fails, proceed with login attempt anyway
-    }
+    // Prevent double-trigger
+    if (isLoggingIn) return;
 
-    const ok = await login(siEmail.trim(), siPassword);
-    if (!ok) {
+    console.log("[SignIn] Login attempt for:", siEmail.trim().toLowerCase());
+
+    const result: LoginResult = await login(siEmail.trim(), siPassword);
+    console.log("[SignIn] Login result:", result);
+
+    if (result === "email_not_found") {
+      toast.error("Ye email registered nahi hai. Pehle Sign Up karein.", {
+        duration: 5000,
+      });
+    } else if (result === "wrong_password") {
       toast.error(
         "Password incorrect hai. Sahi password dalein ya 'Forgot Password?' use karein.",
         { duration: 5000 },
       );
+    } else if (result === "error") {
+      toast.error(
+        "Login mein masla aaya. Internet connection check karein aur dobara try karein.",
+        { duration: 5000 },
+      );
     }
+    // "success" case: useEmailAuth sets identity, App.tsx handles navigation
   };
 
   const handleForgotPassword = () => {
@@ -151,15 +158,24 @@ export default function AuthScreen({ initialTab = "signin" }: AuthScreenProps) {
 
     setIsResetting(true);
     try {
-      // First verify email exists
-      const checkActor = await createActorWithConfig();
-      const exists = await checkActor.emailExists(fpEmail.trim().toLowerCase());
-      if (!exists) {
-        toast.error("Ye email registered nahi hai. Pehle Sign Up karein.", {
-          duration: 5000,
-        });
-        setIsResetting(false);
-        return;
+      // First verify email exists (fail-open: if check fails, proceed anyway)
+      try {
+        const checkActor = await createActorWithConfig();
+        const exists = await checkActor.emailExists(
+          fpEmail.trim().toLowerCase(),
+        );
+        if (!exists) {
+          toast.error("Ye email registered nahi hai. Pehle Sign Up karein.", {
+            duration: 5000,
+          });
+          setIsResetting(false);
+          return;
+        }
+      } catch (checkErr) {
+        console.warn(
+          "[ForgotPassword] emailExists check failed, proceeding:",
+          checkErr,
+        );
       }
 
       // Derive new identity from email + new password
