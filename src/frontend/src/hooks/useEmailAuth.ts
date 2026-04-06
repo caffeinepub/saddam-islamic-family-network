@@ -129,24 +129,7 @@ export function EmailAuthProvider({ children }: { children: ReactNode }) {
 
         console.log("[EmailAuth] Login attempt for:", normalizedEmail);
 
-        // Step 1: Check if email is registered using anonymous actor
-        try {
-          const anonActor = await createActorWithConfig();
-          const exists = await anonActor.emailExists(normalizedEmail);
-          console.log("[EmailAuth] emailExists result:", exists);
-          if (!exists) {
-            return "email_not_found";
-          }
-        } catch (checkErr) {
-          // If emailExists call fails (network/canister issue), log and continue
-          // Don't block login on this check
-          console.warn(
-            "[EmailAuth] emailExists check failed, proceeding:",
-            checkErr,
-          );
-        }
-
-        // Step 2: Derive identity from email+password and check profile
+        // Step 1: Derive identity from email+password
         const id = await deriveIdentity(emailInput.trim(), password);
         const actor = await createActorWithConfig({
           agentOptions: { identity: id },
@@ -157,29 +140,52 @@ export function EmailAuthProvider({ children }: { children: ReactNode }) {
 
         console.log("[EmailAuth] Actor created, checking profile...");
 
-        // Verify account exists (correct password → same principal → same profile)
-        const profile = await actor.getCallerUserProfile();
-        console.log("[EmailAuth] Profile found:", profile !== null);
-
-        if (profile === null) {
-          // Email exists but this identity has no profile = wrong password
-          return "wrong_password";
+        // Step 2: Try to get profile with this identity (email+password derived)
+        let profile: unknown = null;
+        try {
+          profile = await actor.getCallerUserProfile();
+          console.log("[EmailAuth] Profile found:", profile !== null);
+        } catch (profileErr) {
+          console.error("[EmailAuth] getCallerUserProfile failed:", profileErr);
+          return "error";
         }
 
-        // Persist session using derived seed
-        const seed = await deriveSeed(emailInput.trim(), password);
-        const seedHex = bytesToHex(seed);
-        localStorage.setItem(
-          SESSION_KEY,
-          JSON.stringify({
-            email: normalizedEmail,
-            seedHex,
-          } satisfies StoredSession),
-        );
+        if (profile !== null) {
+          // Profile found = email + password correct, login success
+          const seed = await deriveSeed(emailInput.trim(), password);
+          const seedHex = bytesToHex(seed);
+          localStorage.setItem(
+            SESSION_KEY,
+            JSON.stringify({
+              email: normalizedEmail,
+              seedHex,
+            } satisfies StoredSession),
+          );
+          setIdentity(id);
+          setEmail(normalizedEmail);
+          console.log("[EmailAuth] Login success for:", normalizedEmail);
+          return "success";
+        }
 
-        setIdentity(id);
-        setEmail(normalizedEmail);
-        return "success";
+        // Profile is null -- either wrong password OR email not registered
+        // Check emailExists to differentiate
+        console.log("[EmailAuth] Profile null, checking emailExists...");
+        try {
+          const anonActor = await createActorWithConfig();
+          const exists = await anonActor.emailExists(normalizedEmail);
+          console.log("[EmailAuth] emailExists result:", exists);
+          if (!exists) {
+            return "email_not_found";
+          }
+          // Email exists but profile not found with this identity = wrong password
+          return "wrong_password";
+        } catch (checkErr) {
+          // emailExists check failed -- backend issue
+          // Since profile was null, most likely wrong password or network issue
+          console.warn("[EmailAuth] emailExists check also failed:", checkErr);
+          // Return wrong_password as best guess (email might exist)
+          return "wrong_password";
+        }
       } catch (e) {
         console.error("[EmailAuth] Login error:", e);
         return "error";
