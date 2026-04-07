@@ -24,8 +24,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ExternalBlob } from "../backend";
 import type { UserProfile } from "../backend";
+import MessageContextMenu from "../components/MessageContextMenu";
 import { useActor } from "../hooks/useActor";
 import { useEmailAuth } from "../hooks/useEmailAuth";
+import { useLongPress } from "../hooks/useLongPress";
+import { useMessageReactions } from "../hooks/useMessageReactions";
 
 type PrivateChatView = "member-list" | "conversation";
 
@@ -41,6 +44,84 @@ interface ChatMessageView {
   _uploading?: boolean;
   _isVoice?: boolean;
   _failed?: boolean;
+}
+
+// ── Reaction Bar below message ─────────────────────────────────────────────
+function MessageReactionBar({
+  messageId,
+  actor,
+  myPrincipal,
+}: {
+  messageId: string;
+  actor: ReturnType<typeof useActor>["actor"];
+  myPrincipal: string | undefined;
+}) {
+  const { reactionCounts } = useMessageReactions(messageId, actor, myPrincipal);
+  if (reactionCounts.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {reactionCounts.map(({ emoji, count }) => (
+        <span
+          key={emoji}
+          className="text-xs bg-muted border border-border rounded-full px-1.5 py-0.5 flex items-center gap-0.5"
+        >
+          {emoji}
+          {count > 1 && <span className="text-muted-foreground">{count}</span>}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ── Message Bubble Wrapper with Long Press ─────────────────────────────────
+interface MessageBubbleWrapperProps {
+  msg: ChatMessageView;
+  isMe: boolean;
+  actor: ReturnType<typeof useActor>["actor"];
+  myPrincipal: string | undefined;
+  onLongPress: (
+    msg: ChatMessageView,
+    position: { x: number; y: number },
+  ) => void;
+  children: React.ReactNode;
+}
+
+function MessageBubbleWrapper({
+  msg,
+  isMe,
+  actor,
+  myPrincipal,
+  onLongPress,
+  children,
+}: MessageBubbleWrapperProps) {
+  const { handlers } = useLongPress({
+    onLongPress: (position) => {
+      // Don't trigger for temp/uploading messages
+      if (msg.id.startsWith("temp-") || msg._uploading) return;
+      onLongPress(msg, position);
+    },
+    delay: 500,
+  });
+
+  return (
+    <div
+      className={`max-w-[75%] flex flex-col ${isMe ? "items-end" : "items-start"}`}
+      {...handlers}
+      style={{
+        userSelect: "none",
+        WebkitUserSelect: "none",
+        WebkitTouchCallout: "none",
+      }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {children}
+      <MessageReactionBar
+        messageId={msg.id}
+        actor={actor}
+        myPrincipal={myPrincipal}
+      />
+    </div>
+  );
 }
 
 interface ChatActor {
@@ -280,6 +361,7 @@ function MessageImage({ msg }: { msg: ChatMessageView; isMe?: boolean }) {
           alt="Shared"
           className="rounded-xl object-cover max-h-[300px] w-full"
           style={{ maxWidth: 200 }}
+          onContextMenu={(e) => e.preventDefault()}
         />
       ) : null}
     </div>
@@ -603,6 +685,30 @@ function GroupChat() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const voice = useVoiceRecorder();
 
+  // Long press context menu state
+  const [contextMenu, setContextMenu] = useState<{
+    message: ChatMessageView;
+    position: { x: number; y: number };
+  } | null>(null);
+
+  // IDs deleted "for me" (only hidden locally)
+  const [deletedForMeIds, setDeletedForMeIds] = useState<Set<string>>(
+    new Set(),
+  );
+
+  // Load deletedForMe on mount
+  useEffect(() => {
+    if (!actor) return;
+    actor
+      .getDeletedForMe()
+      .then((ids) => {
+        setDeletedForMeIds(new Set(ids));
+      })
+      .catch(() => {
+        // silent fail
+      });
+  }, [actor]);
+
   const handleFileSelect = (file: File) => {
     setSelectedImage(file);
     setPreviewUrl(URL.createObjectURL(file));
@@ -806,66 +912,75 @@ function GroupChat() {
           </div>
         )}
         <div className="space-y-3">
-          {messages.map((msg, idx) => {
-            const isMe = msg.sender.toString() === myPrincipal;
-            const profile = profileMap[msg.sender.toString()];
-            const name =
-              profile?.username ?? `${msg.sender.toString().slice(0, 8)}...`;
-            // Declare hasVoice first so hasImage can use it
-            const hasVoice = msg._isVoice || msg.content === "🎤 Voice message";
-            const hasImage =
-              !!(msg.imageBlobId || msg._localImageUrl) && !hasVoice;
-            return (
-              <div
-                key={msg.id}
-                data-ocid={`chat.group.item.${idx + 1}`}
-                className={`flex gap-2 ${isMe ? "flex-row-reverse" : "flex-row"}`}
-              >
-                {!isMe && (
-                  <Avatar className="w-8 h-8 flex-shrink-0 mt-1">
-                    <AvatarFallback className="bg-islamic-green text-white text-xs">
-                      {getInitials(name)}
-                    </AvatarFallback>
-                  </Avatar>
-                )}
+          {messages
+            .filter((m) => !deletedForMeIds.has(m.id))
+            .map((msg, idx) => {
+              const isMe = msg.sender.toString() === myPrincipal;
+              const profile = profileMap[msg.sender.toString()];
+              const name =
+                profile?.username ?? `${msg.sender.toString().slice(0, 8)}...`;
+              // Declare hasVoice first so hasImage can use it
+              const hasVoice =
+                msg._isVoice || msg.content === "🎤 Voice message";
+              const hasImage =
+                !!(msg.imageBlobId || msg._localImageUrl) && !hasVoice;
+              return (
                 <div
-                  className={`max-w-[75%] flex flex-col ${isMe ? "items-end" : "items-start"}`}
+                  key={msg.id}
+                  data-ocid={`chat.group.item.${idx + 1}`}
+                  className={`flex gap-2 ${isMe ? "flex-row-reverse" : "flex-row"}`}
                 >
                   {!isMe && (
-                    <span className="text-xs font-semibold text-accent-foreground mb-1">
-                      {name}
-                    </span>
+                    <Avatar className="w-8 h-8 flex-shrink-0 mt-1">
+                      <AvatarFallback className="bg-islamic-green text-white text-xs">
+                        {getInitials(name)}
+                      </AvatarFallback>
+                    </Avatar>
                   )}
-                  <div
-                    className={`rounded-2xl text-sm leading-relaxed overflow-hidden ${
-                      isMe
-                        ? "bg-islamic-green text-white rounded-tr-sm"
-                        : "bg-card border border-border text-foreground rounded-tl-sm"
-                    } ${hasImage || hasVoice ? "p-1" : "px-3 py-2"}`}
+                  <MessageBubbleWrapper
+                    msg={msg}
+                    isMe={isMe}
+                    actor={actor}
+                    myPrincipal={myPrincipal}
+                    onLongPress={(m, position) =>
+                      setContextMenu({ message: m, position })
+                    }
                   >
-                    {hasVoice && <VoiceMessageBubble msg={msg} isMe={isMe} />}
-                    {hasImage && <MessageImage msg={msg} isMe={isMe} />}
-                    {msg.content && !hasVoice && (
-                      <p className={hasImage ? "px-2 pb-1 pt-1 text-sm" : ""}>
-                        {msg.content}
-                      </p>
+                    {!isMe && (
+                      <span className="text-xs font-semibold text-accent-foreground mb-1">
+                        {name}
+                      </span>
                     )}
-                  </div>
-                  <div className="flex flex-row items-center gap-1 mt-1">
-                    <span className="text-[10px] text-muted-foreground">
-                      {formatTime(msg.createdTimestamp)}
-                    </span>
-                    {isMe && <MessageTick messageId={msg.id} />}
-                  </div>
-                  {msg._failed && (
-                    <span className="text-[10px] text-red-400 mt-0.5">
-                      ⚠ Failed to send
-                    </span>
-                  )}
+                    <div
+                      className={`rounded-2xl text-sm leading-relaxed overflow-hidden ${
+                        isMe
+                          ? "bg-islamic-green text-white rounded-tr-sm"
+                          : "bg-card border border-border text-foreground rounded-tl-sm"
+                      } ${hasImage || hasVoice ? "p-1" : "px-3 py-2"}`}
+                    >
+                      {hasVoice && <VoiceMessageBubble msg={msg} isMe={isMe} />}
+                      {hasImage && <MessageImage msg={msg} isMe={isMe} />}
+                      {msg.content && !hasVoice && (
+                        <p className={hasImage ? "px-2 pb-1 pt-1 text-sm" : ""}>
+                          {msg.content}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-row items-center gap-1 mt-1">
+                      <span className="text-[10px] text-muted-foreground">
+                        {formatTime(msg.createdTimestamp)}
+                      </span>
+                      {isMe && <MessageTick messageId={msg.id} />}
+                    </div>
+                    {msg._failed && (
+                      <span className="text-[10px] text-red-400 mt-0.5">
+                        ⚠ Failed to send
+                      </span>
+                    )}
+                  </MessageBubbleWrapper>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
           <div ref={bottomRef} />
         </div>
       </ScrollArea>
@@ -894,6 +1009,22 @@ function GroupChat() {
         voice={voice}
         onSendVoice={handleSendVoice}
       />
+
+      {contextMenu && (
+        <MessageContextMenu
+          message={contextMenu.message}
+          myPrincipal={myPrincipal}
+          actor={actor}
+          position={contextMenu.position}
+          onClose={() => setContextMenu(null)}
+          onDeleteForMe={(id) => {
+            setDeletedForMeIds((prev) => new Set([...prev, id]));
+          }}
+          onDeleteForEveryone={(id) => {
+            setMessages((prev) => prev.filter((m) => m.id !== id));
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -919,6 +1050,30 @@ function PrivateChat() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const voice = useVoiceRecorder();
+
+  // Long press context menu state
+  const [contextMenu, setContextMenu] = useState<{
+    message: ChatMessageView;
+    position: { x: number; y: number };
+  } | null>(null);
+
+  // IDs deleted "for me" (only hidden locally)
+  const [deletedForMeIds, setDeletedForMeIds] = useState<Set<string>>(
+    new Set(),
+  );
+
+  // Load deletedForMe on mount
+  useEffect(() => {
+    if (!actor) return;
+    actor
+      .getDeletedForMe()
+      .then((ids) => {
+        setDeletedForMeIds(new Set(ids));
+      })
+      .catch(() => {
+        // silent fail
+      });
+  }, [actor]);
 
   const handleFileSelect = (file: File) => {
     setSelectedImage(file);
@@ -1171,52 +1326,64 @@ function PrivateChat() {
             </div>
           )}
           <div className="space-y-3">
-            {messages.map((msg, idx) => {
-              const isMe = msg.sender.toString() === myPrincipal;
-              // Declare hasVoice first so hasImage can use it
-              const hasVoice =
-                msg._isVoice || msg.content === "🎤 Voice message";
-              const hasImage =
-                !!(msg.imageBlobId || msg._localImageUrl) && !hasVoice;
-              return (
-                <div
-                  key={msg.id}
-                  data-ocid={`chat.private.item.${idx + 1}`}
-                  className={`flex gap-2 ${isMe ? "flex-row-reverse" : "flex-row"}`}
-                >
+            {messages
+              .filter((m) => !deletedForMeIds.has(m.id))
+              .map((msg, idx) => {
+                const isMe = msg.sender.toString() === myPrincipal;
+                // Declare hasVoice first so hasImage can use it
+                const hasVoice =
+                  msg._isVoice || msg.content === "🎤 Voice message";
+                const hasImage =
+                  !!(msg.imageBlobId || msg._localImageUrl) && !hasVoice;
+                return (
                   <div
-                    className={`max-w-[75%] flex flex-col ${isMe ? "items-end" : "items-start"}`}
+                    key={msg.id}
+                    data-ocid={`chat.private.item.${idx + 1}`}
+                    className={`flex gap-2 ${isMe ? "flex-row-reverse" : "flex-row"}`}
                   >
-                    <div
-                      className={`rounded-2xl text-sm leading-relaxed overflow-hidden ${
-                        isMe
-                          ? "bg-islamic-green text-white rounded-tr-sm"
-                          : "bg-card border border-border text-foreground rounded-tl-sm"
-                      } ${hasImage || hasVoice ? "p-1" : "px-3 py-2"}`}
+                    <MessageBubbleWrapper
+                      msg={msg}
+                      isMe={isMe}
+                      actor={actor}
+                      myPrincipal={myPrincipal}
+                      onLongPress={(m, position) =>
+                        setContextMenu({ message: m, position })
+                      }
                     >
-                      {hasVoice && <VoiceMessageBubble msg={msg} isMe={isMe} />}
-                      {hasImage && <MessageImage msg={msg} isMe={isMe} />}
-                      {msg.content && !hasVoice && (
-                        <p className={hasImage ? "px-2 pb-1 pt-1 text-sm" : ""}>
-                          {msg.content}
-                        </p>
+                      <div
+                        className={`rounded-2xl text-sm leading-relaxed overflow-hidden ${
+                          isMe
+                            ? "bg-islamic-green text-white rounded-tr-sm"
+                            : "bg-card border border-border text-foreground rounded-tl-sm"
+                        } ${hasImage || hasVoice ? "p-1" : "px-3 py-2"}`}
+                      >
+                        {hasVoice && (
+                          <VoiceMessageBubble msg={msg} isMe={isMe} />
+                        )}
+                        {hasImage && <MessageImage msg={msg} isMe={isMe} />}
+                        {msg.content && !hasVoice && (
+                          <p
+                            className={hasImage ? "px-2 pb-1 pt-1 text-sm" : ""}
+                          >
+                            {msg.content}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex flex-row items-center gap-1 mt-1">
+                        <span className="text-[10px] text-muted-foreground">
+                          {formatTime(msg.createdTimestamp)}
+                        </span>
+                        {isMe && <MessageTick messageId={msg.id} />}
+                      </div>
+                      {msg._failed && (
+                        <span className="text-[10px] text-red-400 mt-0.5">
+                          ⚠ Failed to send
+                        </span>
                       )}
-                    </div>
-                    <div className="flex flex-row items-center gap-1 mt-1">
-                      <span className="text-[10px] text-muted-foreground">
-                        {formatTime(msg.createdTimestamp)}
-                      </span>
-                      {isMe && <MessageTick messageId={msg.id} />}
-                    </div>
-                    {msg._failed && (
-                      <span className="text-[10px] text-red-400 mt-0.5">
-                        ⚠ Failed to send
-                      </span>
-                    )}
+                    </MessageBubbleWrapper>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
             <div ref={bottomRef} />
           </div>
         </ScrollArea>
@@ -1236,6 +1403,22 @@ function PrivateChat() {
           voice={voice}
           onSendVoice={handleSendVoice}
         />
+
+        {contextMenu && (
+          <MessageContextMenu
+            message={contextMenu.message}
+            myPrincipal={myPrincipal}
+            actor={actor}
+            position={contextMenu.position}
+            onClose={() => setContextMenu(null)}
+            onDeleteForMe={(id) => {
+              setDeletedForMeIds((prev) => new Set([...prev, id]));
+            }}
+            onDeleteForEveryone={(id) => {
+              setMessages((prev) => prev.filter((m) => m.id !== id));
+            }}
+          />
+        )}
       </div>
     );
   }

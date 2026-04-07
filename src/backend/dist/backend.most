@@ -1,0 +1,159 @@
+// Version: 1.0.0
+type ChatMessageId__739576605 = Text;
+type ChatMessage__1037536196 =
+  {
+    content : Text;
+    createdTimestamp : Time__900049286;
+    id : ChatMessageId__739576605;
+    recipient : ?Principal;
+    sender : Principal
+  };
+type CommentId__265911312 = Text;
+type Comment__473346131 =
+  {
+    author : Principal;
+    content : Text;
+    createdTimestamp : Time__900049286;
+    id : CommentId__265911312;
+    postId : PostId__254971760;
+    replies : List__415060402<Comment__473346131>
+  };
+type Data__159895909<T> = {var count : Nat__490723111; elements : [var ?T]};
+type Data__791452850<K, V> =
+  {var count : Nat__490723111; kvs : [var ?(K, V)]};
+type ExternalBlob__246066408 = Blob;
+type Int__270357528 = Int__616954475;
+type Int__616954475 = Int;
+type Internal__667636161<T> =
+  {children : [var ?Node__92254746<T>]; data : Data__159895909<T>};
+type Internal__8484328<K, V> =
+  {children : [var ?Node__46230540<K, V>]; data : Data__791452850<K, V>};
+type Leaf__520550824<T> = {data : Data__159895909<T>};
+type Leaf__809889148<K, V> = {data : Data__791452850<K, V>};
+type List__415060402<T> = List__790383201<T>;
+type List__790383201<T> =
+  {
+    var blockIndex : Nat__490723111;
+    var blocks : [var [var ?T]];
+    var elementIndex : Nat__490723111
+  };
+type Map__158565046<K, V> = Map__297112838<K, V>;
+type Map__297112838<K, V> =
+  {var root : Node__46230540<K, V>; var size : Nat__490723111};
+type Map__605269027<K, V> = Map__158565046<K, V>;
+type Nat__490723111 = Nat__920180692;
+type Nat__920180692 = Nat;
+type Node__46230540<K, V> =
+  {#internal : Internal__8484328<K, V>; #leaf : Leaf__809889148<K, V>};
+type Node__92254746<T> =
+  {#internal : Internal__667636161<T>; #leaf : Leaf__520550824<T>};
+type NotificationId__65415016 = Text;
+type NotificationType__754463539 = {#comment; #like};
+type Notification__879889657 =
+  {
+    createdTimestamp : Time__900049286;
+    id : NotificationId__65415016;
+    isRead : Bool;
+    message : Text;
+    notifType : NotificationType__754463539;
+    postId : PostId__254971760;
+    recipientPrincipal : Principal;
+    senderPrincipal : Principal
+  };
+type PostId__254971760 = Text;
+type Post__955439577 =
+  {
+    author : Principal;
+    comments : List__415060402<Comment__473346131>;
+    content : Text;
+    createdTimestamp : Time__900049286;
+    id : PostId__254971760;
+    imageBlobId : ?ExternalBlob__246066408;
+    likes : Set__532252804<Principal>
+  };
+type Set__532252804<T> = Set__710576254<T>;
+type Set__710576254<T> =
+  {var root : Node__92254746<T>; var size : Nat__490723111};
+type Time__796480547 = Int__270357528;
+type Time__900049286 = Time__796480547;
+type UserAdminRole__1003074007 = {#helperAdmin; #none; #superAdmin};
+type UserProfile__491224006 =
+  {
+    bio : Text;
+    coverPhotoId : ?ExternalBlob__246066408;
+    profilePhotoId : ?ExternalBlob__246066408;
+    username : Text
+  };
+type UserRole__1054455867 = {#admin; #guest; #user};
+type UserStatus__600168017 = {#approved; #blocked; #pending; #rejected};
+actor {
+  stable SUPER_ADMIN_EMAIL : Text;
+  stable accessControlState :
+    {
+      var adminAssigned : Bool;
+      userRoles : Map__605269027<Principal, UserRole__1054455867>
+    };
+  stable chatMessageImages :
+    {
+      var root :
+        Node__46230540<ChatMessageId__739576605, ExternalBlob__246066408>;
+      var size : Nat__490723111
+    };
+  stable chatMessages :
+    {
+      var root :
+        Node__46230540<ChatMessageId__739576605, ChatMessage__1037536196>;
+      var size : Nat__490723111
+    };
+  stable deletedForMe :
+    {
+      var root : Node__46230540<Principal, Set__532252804<Text>>;
+      var size : Nat__490723111
+    };
+  stable emailToPrincipal :
+    {var root : Node__46230540<Text, Principal>; var size : Nat__490723111};
+  stable lifetimeThreshold : Nat;
+  stable messageReactions :
+    {
+      var root :
+        Node__46230540<ChatMessageId__739576605, Map__605269027<Text, Text>>;
+      var size : Nat__490723111
+    };
+  stable var nextChatMessageId : Nat;
+  stable var nextCommentId : Nat;
+  stable var nextNotificationId : Nat;
+  stable var nextPostId : Nat;
+  stable notifications :
+    {
+      var root :
+        Node__46230540<NotificationId__65415016, Notification__879889657>;
+      var size : Nat__490723111
+    };
+  stable posts :
+    {
+      var root : Node__46230540<PostId__254971760, Post__955439577>;
+      var size : Nat__490723111
+    };
+  stable profiles :
+    {
+      var root : Node__46230540<Principal, UserProfile__491224006>;
+      var size : Nat__490723111
+    };
+  stable userAdminRoles :
+    {
+      var root : Node__46230540<Principal, UserAdminRole__1003074007>;
+      var size : Nat__490723111
+    };
+  stable userEmails :
+    {var root : Node__46230540<Principal, Text>; var size : Nat__490723111};
+  stable userSignupDates :
+    {
+      var root : Node__46230540<Principal, Time__900049286>;
+      var size : Nat__490723111
+    };
+  stable userStatuses :
+    {
+      var root : Node__46230540<Principal, UserStatus__600168017>;
+      var size : Nat__490723111
+    }
+};

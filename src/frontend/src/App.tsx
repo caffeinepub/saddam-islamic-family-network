@@ -188,7 +188,7 @@ function AppInner() {
   const isHelperAdmin =
     callerAdminRole !== null &&
     callerAdminRole !== undefined &&
-    "helperAdmin" in (callerAdminRole as object);
+    callerAdminRole === "helperAdmin";
 
   const isAnyAdmin = isSuperAdmin || isHelperAdmin;
 
@@ -228,7 +228,7 @@ function AppInner() {
     userProfile !== null &&
     userStatus
   ) {
-    if ("blocked" in userStatus) {
+    if (userStatus === "blocked") {
       return (
         <div
           className="min-h-screen flex items-center justify-center p-6"
@@ -267,7 +267,7 @@ function AppInner() {
       );
     }
 
-    if ("rejected" in userStatus) {
+    if (userStatus === "rejected") {
       return (
         <div
           className="min-h-screen flex items-center justify-center p-6"
@@ -320,7 +320,7 @@ function AppInner() {
       );
     }
 
-    if ("pending" in userStatus) {
+    if (userStatus === "pending") {
       return (
         <div
           className="min-h-screen flex items-center justify-center p-6"

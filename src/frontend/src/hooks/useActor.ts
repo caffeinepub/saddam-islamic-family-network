@@ -1,59 +1,76 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
-import type { backendInterface } from "../backend";
+// useActor.ts — provides a Backend actor instance using email-derived identity.
+// CRITICAL: MUST use useEmailAuth (NEVER useInternetIdentity) — white screen prevention.
+
+import { useEffect, useRef, useState } from "react";
+import type { Backend } from "../backend";
 import { createActorWithConfig } from "../config";
 import { getSecretParameter } from "../utils/urlParams";
 import { useEmailAuth } from "./useEmailAuth";
 
-const ACTOR_QUERY_KEY = "actor";
-export function useActor() {
-  const { identity } = useEmailAuth();
-  const queryClient = useQueryClient();
-  const actorQuery = useQuery<backendInterface>({
-    queryKey: [ACTOR_QUERY_KEY, identity?.getPrincipal().toString()],
-    queryFn: async () => {
-      const isAuthenticated = !!identity;
+interface UseActorResult {
+  actor: Backend | null;
+  isFetching: boolean;
+}
 
-      if (!isAuthenticated) {
-        // Return anonymous actor if not authenticated
-        return await createActorWithConfig();
-      }
+export function useActor(): UseActorResult {
+  const { identity, isInitializing } = useEmailAuth();
+  const [actor, setActor] = useState<Backend | null>(null);
+  const [isFetching, setIsFetching] = useState(true);
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
 
-      const actorOptions = {
-        agentOptions: {
-          identity,
-        },
-      };
-
-      const actor = await createActorWithConfig(actorOptions);
-      const adminToken = getSecretParameter("caffeineAdminToken") || "";
-      await actor._initializeAccessControlWithSecret(adminToken);
-      return actor;
-    },
-    // Only refetch when identity changes
-    staleTime: Number.POSITIVE_INFINITY,
-    // This will cause the actor to be recreated when the identity changes
-    enabled: true,
-  });
-
-  // When the actor changes, invalidate dependent queries
   useEffect(() => {
-    if (actorQuery.data) {
-      queryClient.invalidateQueries({
-        predicate: (query) => {
-          return !query.queryKey.includes(ACTOR_QUERY_KEY);
-        },
-      });
-      queryClient.refetchQueries({
-        predicate: (query) => {
-          return !query.queryKey.includes(ACTOR_QUERY_KEY);
-        },
-      });
-    }
-  }, [actorQuery.data, queryClient]);
+    let cancelled = false;
 
-  return {
-    actor: actorQuery.data || null,
-    isFetching: actorQuery.isFetching,
-  };
+    if (isInitializing) {
+      setIsFetching(true);
+      return;
+    }
+
+    if (!identity) {
+      setActor(null);
+      setIsFetching(false);
+      return;
+    }
+
+    setIsFetching(true);
+
+    (async () => {
+      try {
+        const newActor = await createActorWithConfig({
+          agentOptions: { identity },
+        });
+
+        // Initialize access control with secret token if available
+        try {
+          const adminToken = getSecretParameter("caffeineAdminToken") || "";
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (newActor as any)._initializeAccessControlWithSecret(
+            adminToken,
+          );
+        } catch {
+          // Silent fail — token may not be needed for normal users
+        }
+
+        if (!cancelled) {
+          setActor(newActor);
+        }
+      } catch (err) {
+        console.error("[useActor] Failed to create actor:", err);
+        if (!cancelled) {
+          setActor(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsFetching(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [identity, isInitializing]);
+
+  return { actor, isFetching };
 }

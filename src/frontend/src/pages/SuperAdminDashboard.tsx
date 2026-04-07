@@ -44,28 +44,28 @@ function getInitials(name: string): string {
 }
 
 function statusLabel(status: UserStatus): string {
-  if ("pending" in status) return "Pending";
-  if ("approved" in status) return "Approved";
-  if ("rejected" in status) return "Rejected";
-  if ("blocked" in status) return "Blocked";
+  if (status === "pending") return "Pending";
+  if (status === "approved") return "Approved";
+  if (status === "rejected") return "Rejected";
+  if (status === "blocked") return "Blocked";
   return "Unknown";
 }
 
 function statusColor(status: UserStatus): string {
-  if ("pending" in status)
+  if (status === "pending")
     return "bg-amber-500/20 text-amber-400 border-amber-500/30";
-  if ("approved" in status)
+  if (status === "approved")
     return "bg-green-500/20 text-green-400 border-green-500/30";
-  if ("rejected" in status)
+  if (status === "rejected")
     return "bg-red-500/20 text-red-400 border-red-500/30";
-  if ("blocked" in status)
+  if (status === "blocked")
     return "bg-gray-500/20 text-gray-400 border-gray-500/30";
   return "";
 }
 
 function adminRoleLabel(role: UserAdminRole): string | null {
-  if ("superAdmin" in role) return "Super Admin";
-  if ("helperAdmin" in role) return "Helper Admin";
+  if (role === "superAdmin") return "Super Admin";
+  if (role === "helperAdmin") return "Helper Admin";
   return null;
 }
 
@@ -170,25 +170,25 @@ export default function SuperAdminDashboard({
       if (action === "approve") {
         await updateStatus.mutateAsync({
           user: user.principal,
-          status: { approved: null },
+          status: "approved" as UserStatus,
         });
         toast.success(`${name} approved successfully`);
       } else if (action === "reject") {
         await updateStatus.mutateAsync({
           user: user.principal,
-          status: { rejected: null },
+          status: "rejected" as UserStatus,
         });
         toast.success(`${name} rejected`);
       } else if (action === "block") {
         await updateStatus.mutateAsync({
           user: user.principal,
-          status: { blocked: null },
+          status: "blocked" as UserStatus,
         });
         toast.success(`${name} blocked`);
       } else if (action === "unblock") {
         await updateStatus.mutateAsync({
           user: user.principal,
-          status: { approved: null },
+          status: "approved" as UserStatus,
         });
         toast.success(`${name} unblocked`);
       } else if (action === "makeHelper") {
@@ -210,18 +210,18 @@ export default function SuperAdminDashboard({
       u.email.toLowerCase().includes(search.toLowerCase());
     const matchStatus =
       filterStatus === "all" ||
-      (filterStatus === "pending" && "pending" in u.status) ||
-      (filterStatus === "approved" && "approved" in u.status) ||
-      (filterStatus === "rejected" && "rejected" in u.status) ||
-      (filterStatus === "blocked" && "blocked" in u.status);
+      (filterStatus === "pending" && u.status === "pending") ||
+      (filterStatus === "approved" && u.status === "approved") ||
+      (filterStatus === "rejected" && u.status === "rejected") ||
+      (filterStatus === "blocked" && u.status === "blocked");
     return matchSearch && matchStatus;
   });
 
   const counts = {
     total: users?.length ?? 0,
-    pending: users?.filter((u) => "pending" in u.status).length ?? 0,
-    approved: users?.filter((u) => "approved" in u.status).length ?? 0,
-    blocked: users?.filter((u) => "blocked" in u.status).length ?? 0,
+    pending: users?.filter((u) => u.status === "pending").length ?? 0,
+    approved: users?.filter((u) => u.status === "approved").length ?? 0,
+    blocked: users?.filter((u) => u.status === "blocked").length ?? 0,
   };
 
   return (
@@ -507,7 +507,7 @@ export default function SuperAdminDashboard({
                           align="end"
                           className="bg-gray-900 border-green-800/40 text-white min-w-[160px]"
                         >
-                          {!("approved" in user.status) && (
+                          {user.status !== "approved" && (
                             <DropdownMenuItem
                               data-ocid={`admin.approve_button.${idx + 1}`}
                               onClick={() => handleAction(user, "approve")}
@@ -516,7 +516,7 @@ export default function SuperAdminDashboard({
                               <CheckCircle className="w-4 h-4" /> Approve
                             </DropdownMenuItem>
                           )}
-                          {!("rejected" in user.status) && (
+                          {user.status !== "rejected" && (
                             <DropdownMenuItem
                               data-ocid={`admin.reject_button.${idx + 1}`}
                               onClick={() => handleAction(user, "reject")}
@@ -526,7 +526,7 @@ export default function SuperAdminDashboard({
                             </DropdownMenuItem>
                           )}
                           <DropdownMenuSeparator className="bg-white/10" />
-                          {!("blocked" in user.status) ? (
+                          {user.status !== "blocked" ? (
                             <DropdownMenuItem
                               data-ocid={`admin.block_button.${idx + 1}`}
                               onClick={() => handleAction(user, "block")}
@@ -544,7 +544,7 @@ export default function SuperAdminDashboard({
                             </DropdownMenuItem>
                           )}
                           <DropdownMenuSeparator className="bg-white/10" />
-                          {"helperAdmin" in user.adminRole ? (
+                          {user.adminRole === "helperAdmin" ? (
                             <DropdownMenuItem
                               data-ocid={`admin.remove_helper_button.${idx + 1}`}
                               onClick={() => handleAction(user, "removeHelper")}

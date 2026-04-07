@@ -1,3 +1,4 @@
+// CRITICAL: MUST use EmailAuthProvider (NEVER InternetIdentityProvider) — white screen prevention.
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ReactDOM from "react-dom/client";
 import App from "./App";

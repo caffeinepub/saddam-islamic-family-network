@@ -16,6 +16,7 @@ export class ExternalBlob {
 }
 export type CommentId = string;
 export type Time = bigint;
+export type PostId = string;
 export interface PostView {
     id: PostId;
     content: string;
@@ -25,7 +26,6 @@ export interface PostView {
     comments: Array<CommentView>;
     imageBlobId?: ExternalBlob;
 }
-export type PostId = string;
 export interface CommentView {
     id: CommentId;
     content: string;
@@ -45,6 +45,14 @@ export interface NotificationView {
     recipientPrincipal: Principal;
     postId: PostId;
 }
+export interface AdminUserView {
+    status: UserStatus;
+    principal: Principal;
+    signupDate: Time;
+    email: string;
+    adminRole: UserAdminRole;
+    profile: UserProfile;
+}
 export type NotificationId = string;
 export interface ChatMessageView {
     id: ChatMessageId;
@@ -60,31 +68,35 @@ export interface UserProfile {
     profilePhotoId?: ExternalBlob;
     coverPhotoId?: ExternalBlob;
 }
-export type UserStatus = { pending: null } | { approved: null } | { rejected: null } | { blocked: null };
-export type UserAdminRole = { none: null } | { helperAdmin: null } | { superAdmin: null };
-export interface AdminUserView {
-    principal: Principal;
-    profile: UserProfile;
-    email: string;
-    status: UserStatus;
-    adminRole: UserAdminRole;
-    signupDate: Time;
-}
 export enum NotificationType {
     like = "like",
     comment = "comment"
+}
+export enum UserAdminRole {
+    none = "none",
+    superAdmin = "superAdmin",
+    helperAdmin = "helperAdmin"
 }
 export enum UserRole {
     admin = "admin",
     user = "user",
     guest = "guest"
 }
+export enum UserStatus {
+    pending = "pending",
+    blocked = "blocked",
+    approved = "approved",
+    rejected = "rejected"
+}
 export interface backendInterface {
     addComment(postId: PostId, content: string): Promise<void>;
+    addReaction(messageId: string, emoji: string): Promise<void>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     cleanupIncompleteUsers(): Promise<bigint>;
     createPost(content: string, imageBlobId: ExternalBlob | null): Promise<void>;
     deleteExpiredPosts(): Promise<void>;
+    deleteMessageForEveryone(messageId: string): Promise<void>;
+    deleteMessageForMe(messageId: string): Promise<void>;
     emailExists(email: string): Promise<boolean>;
     getAllUsers(): Promise<Array<Principal>>;
     getAllUsersAdminView(): Promise<Array<AdminUserView>>;
@@ -93,8 +105,10 @@ export interface backendInterface {
     getCallerStatus(): Promise<UserStatus>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
+    getDeletedForMe(): Promise<Array<string>>;
     getFeed(page: bigint, pageSize: bigint): Promise<Array<PostView>>;
     getGroupMessages(page: bigint, pageSize: bigint): Promise<Array<ChatMessageView>>;
+    getMessageReactions(messageId: string): Promise<Array<[string, string]>>;
     getMyNotifications(): Promise<Array<NotificationView>>;
     getPrivateMessages(other: Principal, page: bigint, pageSize: bigint): Promise<Array<ChatMessageView>>;
     getProfile(user: Principal): Promise<UserProfile | null>;
@@ -105,6 +119,7 @@ export interface backendInterface {
     likePost(postId: PostId): Promise<void>;
     markAllNotificationsRead(): Promise<void>;
     markNotificationRead(notifId: NotificationId): Promise<void>;
+    removeReaction(messageId: string): Promise<void>;
     replyToComment(postId: PostId, commentId: CommentId, content: string): Promise<void>;
     resetPasswordForEmail(email: string): Promise<void>;
     saveCallerEmail(email: string): Promise<void>;

@@ -1,0 +1,157 @@
+type _ImmutableObjectStorageRefillResult = 
+ record {
+   success: opt bool;
+   topped_up_amount: opt nat;
+ };
+type _ImmutableObjectStorageRefillInformation = record {
+                                                  proposed_top_up_amount:
+                                                   opt nat;};
+type _ImmutableObjectStorageCreateCertificateResult = 
+ record {
+   blob_hash: text;
+   method: text;
+ };
+type UserStatus = 
+ variant {
+   approved;
+   blocked;
+   pending;
+   rejected;
+ };
+type UserRole = 
+ variant {
+   admin;
+   guest;
+   user;
+ };
+type UserProfile = 
+ record {
+   bio: text;
+   coverPhotoId: opt ExternalBlob;
+   profilePhotoId: opt ExternalBlob;
+   username: text;
+ };
+type UserAdminRole = 
+ variant {
+   helperAdmin;
+   none;
+   superAdmin;
+ };
+type Time = int;
+type PostView = 
+ record {
+   author: principal;
+   comments: vec CommentView;
+   content: text;
+   createdTimestamp: Time;
+   id: PostId;
+   imageBlobId: opt ExternalBlob;
+   likes: vec principal;
+ };
+type PostId = text;
+type NotificationView = 
+ record {
+   createdTimestamp: Time;
+   id: NotificationId;
+   isRead: bool;
+   message: text;
+   notifType: NotificationType;
+   postId: PostId;
+   recipientPrincipal: principal;
+   senderPrincipal: principal;
+ };
+type NotificationType = 
+ variant {
+   comment;
+   like;
+ };
+type NotificationId = text;
+type ExternalBlob = blob;
+type CommentView = 
+ record {
+   author: principal;
+   content: text;
+   createdTimestamp: Time;
+   id: CommentId;
+   postId: PostId;
+   replies: vec CommentView;
+ };
+type CommentId = text;
+type ChatMessageView = 
+ record {
+   content: text;
+   createdTimestamp: Time;
+   id: ChatMessageId;
+   imageBlobId: opt ExternalBlob;
+   recipient: opt principal;
+   sender: principal;
+ };
+type ChatMessageId = text;
+type AdminUserView = 
+ record {
+   adminRole: UserAdminRole;
+   email: text;
+   "principal": principal;
+   profile: UserProfile;
+   signupDate: Time;
+   status: UserStatus;
+ };
+service : {
+  _immutableObjectStorageBlobsAreLive: (hashes: vec blob) -> (vec bool) query;
+  _immutableObjectStorageBlobsToDelete: () -> (vec blob) query;
+  _immutableObjectStorageConfirmBlobDeletion: (blobs: vec blob) -> ();
+  _immutableObjectStorageCreateCertificate: (blobHash: text) ->
+   (_ImmutableObjectStorageCreateCertificateResult);
+  _immutableObjectStorageRefillCashier: (refillInformation:
+   opt _ImmutableObjectStorageRefillInformation) ->
+   (_ImmutableObjectStorageRefillResult);
+  _immutableObjectStorageUpdateGatewayPrincipals: () -> ();
+  _initializeAccessControl: () -> ();
+  addComment: (postId: PostId, content: text) -> ();
+  addReaction: (messageId: text, emoji: text) -> ();
+  assignCallerUserRole: (user: principal, role: UserRole) -> ();
+  cleanupIncompleteUsers: () -> (nat);
+  createPost: (content: text, imageBlobId: opt ExternalBlob) -> ();
+  deleteExpiredPosts: () -> ();
+  deleteMessageForEveryone: (messageId: text) -> ();
+  deleteMessageForMe: (messageId: text) -> ();
+  emailExists: (email: text) -> (bool) query;
+  getAllUsers: () -> (vec principal) query;
+  getAllUsersAdminView: () -> (vec AdminUserView) query;
+  getCallerAdminRole: () -> (UserAdminRole) query;
+  getCallerEmail: () -> (opt text) query;
+  getCallerStatus: () -> (UserStatus) query;
+  getCallerUserProfile: () -> (opt UserProfile) query;
+  getCallerUserRole: () -> (UserRole) query;
+  getDeletedForMe: () -> (vec text) query;
+  getFeed: (page: nat, pageSize: nat) -> (vec PostView) query;
+  getGroupMessages: (page: nat, pageSize: nat) -> (vec ChatMessageView) query;
+  getMessageReactions: (messageId: text) -> (vec record {
+                                                   text;
+                                                   text;
+                                                 }) query;
+  getMyNotifications: () -> (vec NotificationView) query;
+  getPrivateMessages: (other: principal, page: nat, pageSize: nat) ->
+   (vec ChatMessageView) query;
+  getProfile: (user: principal) -> (opt UserProfile) query;
+  getUserPosts: (user: principal, page: nat, pageSize: nat) ->
+   (vec PostView) query;
+  getUserProfile: (user: principal) -> (opt UserProfile) query;
+  isCallerAdmin: () -> (bool) query;
+  isSuperAdmin: () -> (bool) query;
+  likePost: (postId: PostId) -> ();
+  markAllNotificationsRead: () -> ();
+  markNotificationRead: (notifId: NotificationId) -> ();
+  removeReaction: (messageId: text) -> ();
+  replyToComment: (postId: PostId, commentId: CommentId, content: text) -> ();
+  resetPasswordForEmail: (email: text) -> ();
+  saveCallerEmail: (email: text) -> ();
+  saveCallerUserProfile: (profile: UserProfile) -> ();
+  sendGroupMessage: (content: text, imageBlobId: opt ExternalBlob) -> ();
+  sendPrivateMessage: (recipient: principal, content: text, imageBlobId:
+   opt ExternalBlob) -> ();
+  setHelperAdmin: (user: principal, isHelper: bool) -> ();
+  startAutoDeleteTimer: () -> ();
+  unlikePost: (postId: PostId) -> ();
+  updateUserStatus: (user: principal, status: UserStatus) -> ();
+}

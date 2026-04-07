@@ -8,16 +8,16 @@ import Nat "mo:core/Nat";
 import Text "mo:core/Text";
 import Principal "mo:core/Principal";
 import Runtime "mo:core/Runtime";
-import AccessControl "authorization/access-control";
-import MixinAuthorization "authorization/MixinAuthorization";
-import MixinStorage "blob-storage/Mixin";
-import Storage "blob-storage/Storage";
+import AccessControl "mo:caffeineai-authorization/access-control";
+import MixinAuthorization "mo:caffeineai-authorization/MixinAuthorization";
+import MixinObjectStorage "mo:caffeineai-object-storage/Mixin";
+import Storage "mo:caffeineai-object-storage/Storage";
 import Timer "mo:core/Timer";
 
 actor {
   let accessControlState = AccessControl.initState();
   include MixinAuthorization(accessControlState);
-  include MixinStorage();
+  include MixinObjectStorage();
 
   let SUPER_ADMIN_EMAIL : Text = "mdsaddamislamic@gmail.com";
 
@@ -698,5 +698,95 @@ actor {
       #seconds(86400),
       func() : async () { await cleanupExpired() },
     );
+  };
+
+  // ── Reactions: messageId -> Map<principalText, emoji> ─────────────────────
+  // Each principal can have at most one reaction per message (upsert behaviour).
+  let messageReactions = Map.empty<ChatMessageId, Map.Map<Text, Text>>();
+
+  // ── Deleted-for-me: principal -> Set<messageId> ───────────────────────────
+  // Purely client-side visibility suppression; message stays on backend.
+  let deletedForMe = Map.empty<Principal, Set.Set<Text>>();
+
+  // Add or replace the caller's emoji reaction on a message.
+  public shared ({ caller }) func addReaction(messageId : Text, emoji : Text) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can react to messages");
+    };
+    let callerText = caller.toText();
+    let reactionMap = switch (messageReactions.get(messageId)) {
+      case (?m) { m };
+      case (null) {
+        let m = Map.empty<Text, Text>();
+        messageReactions.add(messageId, m);
+        m;
+      };
+    };
+    reactionMap.add(callerText, emoji);
+  };
+
+  // Remove the caller's reaction from a message (no-op if none exists).
+  public shared ({ caller }) func removeReaction(messageId : Text) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can remove reactions");
+    };
+    let callerText = caller.toText();
+    switch (messageReactions.get(messageId)) {
+      case (null) {};
+      case (?reactionMap) { reactionMap.remove(callerText) };
+    };
+  };
+
+  // Return all (principalText, emoji) pairs for a message.
+  public query func getMessageReactions(messageId : Text) : async [(Text, Text)] {
+    switch (messageReactions.get(messageId)) {
+      case (null) { [] };
+      case (?reactionMap) { reactionMap.toArray() };
+    };
+  };
+
+  // Hide a message from the caller's view only (does NOT delete from backend).
+  public shared ({ caller }) func deleteMessageForMe(messageId : Text) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can delete messages for themselves");
+    };
+    let hidden = switch (deletedForMe.get(caller)) {
+      case (?s) { s };
+      case (null) {
+        let s = Set.empty<Text>();
+        deletedForMe.add(caller, s);
+        s;
+      };
+    };
+    hidden.add(messageId);
+  };
+
+  // Delete a message for everyone — only the original sender is allowed.
+  public shared ({ caller }) func deleteMessageForEveryone(messageId : Text) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can delete messages");
+    };
+    switch (chatMessages.get(messageId)) {
+      case (null) {};   // already gone — silently ignore
+      case (?msg) {
+        if (msg.sender != caller) {
+          Runtime.trap("Unauthorized: Only the sender can delete for everyone");
+        };
+        chatMessages.remove(messageId);
+        chatMessageImages.remove(messageId);
+        messageReactions.remove(messageId);
+      };
+    };
+  };
+
+  // Return the set of message IDs the caller has hidden (deleted for me).
+  public query ({ caller }) func getDeletedForMe() : async [Text] {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized");
+    };
+    switch (deletedForMe.get(caller)) {
+      case (null) { [] };
+      case (?s) { s.toArray() };
+    };
   };
 };
