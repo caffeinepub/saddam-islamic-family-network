@@ -685,6 +685,13 @@ function GroupChat() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const voice = useVoiceRecorder();
 
+  // Scroll state
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+  const [loadMorePage, setLoadMorePage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
   // Long press context menu state
   const [contextMenu, setContextMenu] = useState<{
     message: ChatMessageView;
@@ -724,53 +731,131 @@ function GroupChat() {
   const fetchMessages = useCallback(async () => {
     if (!actor) return;
     const chatActor = asChatActor(actor);
-    const msgs = await chatActor.getGroupMessages(BigInt(0), BigInt(50));
-    const sorted = [...msgs].sort((a, b) =>
-      a.createdTimestamp < b.createdTimestamp ? -1 : 1,
-    );
-    setMessages((prev) => {
-      const optimistic = prev.filter((m) => m.id.startsWith("temp-"));
-      const merged = [...sorted];
-      for (const opt of optimistic) {
-        const isConfirmed = sorted.some(
-          (m) =>
-            m.sender.toString() === opt.sender.toString() &&
-            m.content === opt.content &&
-            Math.abs(
-              Number(m.createdTimestamp) - Number(opt.createdTimestamp),
-            ) < 30_000_000_000,
-        );
-        if (!isConfirmed) merged.push(opt);
-      }
-      return merged.sort((a, b) =>
+    try {
+      const msgs = await chatActor.getGroupMessages(BigInt(0), BigInt(50));
+      const sorted = [...msgs].sort((a, b) =>
         a.createdTimestamp < b.createdTimestamp ? -1 : 1,
       );
-    });
-
-    const uniqueSenders = sorted
-      .map((m) => m.sender.toString())
-      .filter((s, i, arr) => arr.indexOf(s) === i);
-
-    setProfileMap((prev) => {
-      const missing = uniqueSenders.filter((s) => !(s in prev));
-      if (missing.length === 0) return prev;
-      Promise.all(
-        missing.map((s) => {
-          const principal = sorted.find(
-            (m) => m.sender.toString() === s,
-          )!.sender;
-          return chatActor.getUserProfile(principal).then((p) => ({ s, p }));
-        }),
-      ).then((results) => {
-        setProfileMap((p2) => {
-          const next = { ...p2 };
-          for (const { s, p } of results) next[s] = p ?? null;
-          return next;
-        });
+      setMessages((prev) => {
+        const optimistic = prev.filter((m) => m.id.startsWith("temp-"));
+        const merged = [...sorted];
+        for (const opt of optimistic) {
+          const isConfirmed = sorted.some(
+            (m) =>
+              m.sender.toString() === opt.sender.toString() &&
+              m.content === opt.content &&
+              Math.abs(
+                Number(m.createdTimestamp) - Number(opt.createdTimestamp),
+              ) < 30_000_000_000,
+          );
+          if (!isConfirmed) merged.push(opt);
+        }
+        return merged.sort((a, b) =>
+          a.createdTimestamp < b.createdTimestamp ? -1 : 1,
+        );
       });
-      return prev;
-    });
+
+      const uniqueSenders = sorted
+        .map((m) => m.sender.toString())
+        .filter((s, i, arr) => arr.indexOf(s) === i);
+
+      setProfileMap((prev) => {
+        const missing = uniqueSenders.filter((s) => !(s in prev));
+        if (missing.length === 0) return prev;
+        Promise.all(
+          missing.map((s) => {
+            const principal = sorted.find(
+              (m) => m.sender.toString() === s,
+            )!.sender;
+            return chatActor.getUserProfile(principal).then((p) => ({ s, p }));
+          }),
+        ).then((results) => {
+          setProfileMap((p2) => {
+            const next = { ...p2 };
+            for (const { s, p } of results) next[s] = p ?? null;
+            return next;
+          });
+        });
+        return prev;
+      });
+    } catch (err) {
+      console.error("[GroupChat] fetchMessages error:", err);
+    }
   }, [actor]);
+
+  // Load older messages (pagination)
+  const loadMoreMessages = useCallback(async () => {
+    if (!actor || isLoadingMore || !hasMore) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    setIsLoadingMore(true);
+    const nextPage = loadMorePage + 1;
+
+    try {
+      const prevScrollHeight = container.scrollHeight;
+      const chatActor = asChatActor(actor);
+      const olderMsgs = await chatActor.getGroupMessages(
+        BigInt(nextPage),
+        BigInt(50),
+      );
+
+      if (olderMsgs.length < 50) {
+        setHasMore(false);
+      }
+
+      if (olderMsgs.length > 0) {
+        const sorted = [...olderMsgs].sort((a, b) =>
+          a.createdTimestamp < b.createdTimestamp ? -1 : 1,
+        );
+        setMessages((prev) => {
+          // Prepend older messages, avoid duplicates by id
+          const existingIds = new Set(prev.map((m) => m.id));
+          const newOnes = sorted.filter((m) => !existingIds.has(m.id));
+          if (newOnes.length === 0) return prev;
+          return [...newOnes, ...prev];
+        });
+        setLoadMorePage(nextPage);
+
+        // Restore scroll position after prepend
+        requestAnimationFrame(() => {
+          try {
+            if (container) {
+              container.scrollTop = container.scrollHeight - prevScrollHeight;
+            }
+          } catch {
+            // silent
+          }
+        });
+      } else {
+        setHasMore(false);
+      }
+    } catch (err) {
+      console.error("[GroupChat] loadMoreMessages error:", err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [actor, isLoadingMore, hasMore, loadMorePage]);
+
+  // Scroll handler: detect near-top (load more) and near-bottom (auto-scroll)
+  const handleScroll = useCallback(() => {
+    try {
+      const container = scrollContainerRef.current;
+      if (!container) return;
+
+      const { scrollTop, scrollHeight, clientHeight } = container;
+
+      // Update near-bottom ref
+      isNearBottomRef.current = scrollHeight - scrollTop - clientHeight < 100;
+
+      // Load more when near top
+      if (scrollTop <= 50 && hasMore && !isLoadingMore) {
+        loadMoreMessages();
+      }
+    } catch {
+      // silent fail
+    }
+  }, [hasMore, isLoadingMore, loadMoreMessages]);
 
   useEffect(() => {
     fetchMessages();
@@ -778,9 +863,12 @@ function GroupChat() {
     return () => clearInterval(id);
   }, [fetchMessages]);
 
+  // Smart auto-scroll: only scroll to bottom if user is near bottom
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on new message
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (isNearBottomRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages]);
 
   const sendMessage = async (
@@ -800,6 +888,8 @@ function GroupChat() {
       _uploading: !!file,
     };
     setMessages((prev) => [...prev, optimisticMsg]);
+    // When user sends a message, scroll to bottom
+    isNearBottomRef.current = true;
 
     try {
       let imageBlob: ExternalBlob | null = null;
@@ -864,6 +954,8 @@ function GroupChat() {
       _isVoice: true,
     };
     setMessages((prev) => [...prev, optimisticMsg]);
+    // When user sends a message, scroll to bottom
+    isNearBottomRef.current = true;
 
     try {
       const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -898,8 +990,29 @@ function GroupChat() {
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <ScrollArea className="flex-1 px-3 py-4" data-ocid="chat.group.panel">
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Scroll container: proper overflow-y:auto, flex-1, no overflow:hidden */}
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-3 py-4"
+        data-ocid="chat.group.panel"
+        style={{ minHeight: 0 }}
+      >
+        {/* Load more indicator at top */}
+        {isLoadingMore && (
+          <div className="flex justify-center py-2">
+            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+          </div>
+        )}
+        {!hasMore && messages.length > 0 && (
+          <div className="flex justify-center py-2">
+            <span className="text-xs text-muted-foreground">
+              No more messages
+            </span>
+          </div>
+        )}
+
         {messages.length === 0 && (
           <div
             className="flex flex-col items-center justify-center py-16 gap-3"
@@ -911,7 +1024,7 @@ function GroupChat() {
             </p>
           </div>
         )}
-        <div className="space-y-3">
+        <div className="space-y-3" style={{ paddingBottom: "8px" }}>
           {messages
             .filter((m) => !deletedForMeIds.has(m.id))
             .map((msg, idx) => {
@@ -983,7 +1096,7 @@ function GroupChat() {
             })}
           <div ref={bottomRef} />
         </div>
-      </ScrollArea>
+      </div>
 
       {isFetching && !actor && (
         <p
@@ -1051,6 +1164,13 @@ function PrivateChat() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const voice = useVoiceRecorder();
 
+  // Scroll state
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+  const [loadMorePage, setLoadMorePage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
   // Long press context menu state
   const [contextMenu, setContextMenu] = useState<{
     message: ChatMessageView;
@@ -1113,35 +1233,112 @@ function PrivateChat() {
   const fetchConversation = useCallback(
     async (other: Principal) => {
       if (!actor) return;
-      const msgs = await asChatActor(actor).getPrivateMessages(
-        other,
-        BigInt(0),
-        BigInt(50),
-      );
-      const sorted = [...msgs].sort((a, b) =>
-        a.createdTimestamp < b.createdTimestamp ? -1 : 1,
-      );
-      setMessages((prev) => {
-        const optimistic = prev.filter((m) => m.id.startsWith("temp-"));
-        const merged = [...sorted];
-        for (const opt of optimistic) {
-          const isConfirmed = sorted.some(
-            (m) =>
-              m.sender.toString() === opt.sender.toString() &&
-              m.content === opt.content &&
-              Math.abs(
-                Number(m.createdTimestamp) - Number(opt.createdTimestamp),
-              ) < 30_000_000_000,
-          );
-          if (!isConfirmed) merged.push(opt);
-        }
-        return merged.sort((a, b) =>
+      try {
+        const msgs = await asChatActor(actor).getPrivateMessages(
+          other,
+          BigInt(0),
+          BigInt(50),
+        );
+        const sorted = [...msgs].sort((a, b) =>
           a.createdTimestamp < b.createdTimestamp ? -1 : 1,
         );
-      });
+        setMessages((prev) => {
+          const optimistic = prev.filter((m) => m.id.startsWith("temp-"));
+          const merged = [...sorted];
+          for (const opt of optimistic) {
+            const isConfirmed = sorted.some(
+              (m) =>
+                m.sender.toString() === opt.sender.toString() &&
+                m.content === opt.content &&
+                Math.abs(
+                  Number(m.createdTimestamp) - Number(opt.createdTimestamp),
+                ) < 30_000_000_000,
+            );
+            if (!isConfirmed) merged.push(opt);
+          }
+          return merged.sort((a, b) =>
+            a.createdTimestamp < b.createdTimestamp ? -1 : 1,
+          );
+        });
+      } catch (err) {
+        console.error("[PrivateChat] fetchConversation error:", err);
+      }
     },
     [actor],
   );
+
+  // Load older messages for private chat
+  const loadMorePrivateMessages = useCallback(async () => {
+    if (!actor || !selectedMember || isLoadingMore || !hasMore) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    setIsLoadingMore(true);
+    const nextPage = loadMorePage + 1;
+
+    try {
+      const prevScrollHeight = container.scrollHeight;
+      const olderMsgs = await asChatActor(actor).getPrivateMessages(
+        selectedMember,
+        BigInt(nextPage),
+        BigInt(50),
+      );
+
+      if (olderMsgs.length < 50) {
+        setHasMore(false);
+      }
+
+      if (olderMsgs.length > 0) {
+        const sorted = [...olderMsgs].sort((a, b) =>
+          a.createdTimestamp < b.createdTimestamp ? -1 : 1,
+        );
+        setMessages((prev) => {
+          const existingIds = new Set(prev.map((m) => m.id));
+          const newOnes = sorted.filter((m) => !existingIds.has(m.id));
+          if (newOnes.length === 0) return prev;
+          return [...newOnes, ...prev];
+        });
+        setLoadMorePage(nextPage);
+
+        // Restore scroll position after prepend
+        requestAnimationFrame(() => {
+          try {
+            if (container) {
+              container.scrollTop = container.scrollHeight - prevScrollHeight;
+            }
+          } catch {
+            // silent
+          }
+        });
+      } else {
+        setHasMore(false);
+      }
+    } catch (err) {
+      console.error("[PrivateChat] loadMoreMessages error:", err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [actor, selectedMember, isLoadingMore, hasMore, loadMorePage]);
+
+  // Scroll handler for private conversation
+  const handleConversationScroll = useCallback(() => {
+    try {
+      const container = scrollContainerRef.current;
+      if (!container) return;
+
+      const { scrollTop, scrollHeight, clientHeight } = container;
+
+      // Update near-bottom ref
+      isNearBottomRef.current = scrollHeight - scrollTop - clientHeight < 100;
+
+      // Load more when near top
+      if (scrollTop <= 50 && hasMore && !isLoadingMore) {
+        loadMorePrivateMessages();
+      }
+    } catch {
+      // silent fail
+    }
+  }, [hasMore, isLoadingMore, loadMorePrivateMessages]);
 
   useEffect(() => {
     if (!selectedMember || !actor) return;
@@ -1150,9 +1347,10 @@ function PrivateChat() {
     return () => clearInterval(id);
   }, [selectedMember, actor, fetchConversation]);
 
+  // Smart auto-scroll: only when near bottom
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on new message
   useEffect(() => {
-    if (view === "conversation") {
+    if (view === "conversation" && isNearBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, view]);
@@ -1163,6 +1361,11 @@ function PrivateChat() {
     setInput("");
     handleRemoveImage();
     voice.clearAudio();
+    // Reset pagination state for new conversation
+    setLoadMorePage(0);
+    setHasMore(true);
+    setIsLoadingMore(false);
+    isNearBottomRef.current = true;
     setView("conversation");
   };
 
@@ -1183,6 +1386,8 @@ function PrivateChat() {
       _uploading: !!file,
     };
     setMessages((prev) => [...prev, optimisticMsg]);
+    // When user sends, scroll to bottom
+    isNearBottomRef.current = true;
 
     try {
       let imageBlob: ExternalBlob | null = null;
@@ -1251,6 +1456,8 @@ function PrivateChat() {
       _isVoice: true,
     };
     setMessages((prev) => [...prev, optimisticMsg]);
+    // When user sends, scroll to bottom
+    isNearBottomRef.current = true;
 
     try {
       const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -1289,8 +1496,8 @@ function PrivateChat() {
     const partnerName =
       partnerProfile?.username ?? `${selectedMember.toString().slice(0, 8)}...`;
     return (
-      <div className="flex flex-col h-full">
-        <div className="flex items-center gap-3 px-3 py-3 border-b border-border bg-card">
+      <div className="flex flex-col h-full overflow-hidden">
+        <div className="flex items-center gap-3 px-3 py-3 border-b border-border bg-card flex-shrink-0">
           <Button
             data-ocid="chat.private.secondary_button"
             variant="ghost"
@@ -1313,7 +1520,28 @@ function PrivateChat() {
           </div>
         </div>
 
-        <ScrollArea className="flex-1 px-3 py-4" data-ocid="chat.private.panel">
+        {/* Scroll container: proper overflow-y:auto, flex-1, no overflow:hidden */}
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleConversationScroll}
+          className="flex-1 overflow-y-auto px-3 py-4"
+          data-ocid="chat.private.panel"
+          style={{ minHeight: 0 }}
+        >
+          {/* Load more indicator at top */}
+          {isLoadingMore && (
+            <div className="flex justify-center py-2">
+              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+            </div>
+          )}
+          {!hasMore && messages.length > 0 && (
+            <div className="flex justify-center py-2">
+              <span className="text-xs text-muted-foreground">
+                No more messages
+              </span>
+            </div>
+          )}
+
           {messages.length === 0 && (
             <div
               className="flex flex-col items-center justify-center py-16 gap-3"
@@ -1325,7 +1553,7 @@ function PrivateChat() {
               </p>
             </div>
           )}
-          <div className="space-y-3">
+          <div className="space-y-3" style={{ paddingBottom: "8px" }}>
             {messages
               .filter((m) => !deletedForMeIds.has(m.id))
               .map((msg, idx) => {
@@ -1386,7 +1614,7 @@ function PrivateChat() {
               })}
             <div ref={bottomRef} />
           </div>
-        </ScrollArea>
+        </div>
 
         <InputBar
           input={input}
@@ -1424,8 +1652,8 @@ function PrivateChat() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="px-3 py-3 border-b border-border">
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="px-3 py-3 border-b border-border flex-shrink-0">
         <h3 className="font-semibold text-sm text-foreground">
           Family Members
         </h3>
